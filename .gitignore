@@ -1,0 +1,14 @@
+data/raw/
+data/processed/
+indexes/
+results/
+__pycache__/
+.venv/
+*.egg-info/
+.omc/
+*.pyc
+.pytest_cache/
+htmlcov/
+.coverage
+dist/
+build/

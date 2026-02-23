@@ -1,0 +1,41 @@
+{
+    "embedders": ["small", "medium", "large"],
+    "techniques": [
+        {
+            "name": "threat_prototype",
+            "variants": [
+                {"top_k": 1, "aggregation": "max", "index_type": "flat"},
+                {"top_k": 5, "aggregation": "mean", "index_type": "flat"},
+                {"top_k": 5, "aggregation": "mean", "index_type": "hnsw"}
+            ]
+        },
+        {
+            "name": "intra_prompt_outlier",
+            "variants": [
+                {"outlier_detector": "lof", "chunker": "sentence", "aggregation": "max"},
+                {"outlier_detector": "iforest", "chunker": "sentence", "aggregation": "max"},
+                {"outlier_detector": "ecod", "chunker": "sentence", "aggregation": "max"},
+                {"outlier_detector": "lof", "chunker": "sentence", "aggregation": "zscore_max"}
+            ]
+        },
+        {
+            "name": "intent_content_consistency",
+            "variants": [
+                {"scorer": "bi_encoder", "body_strategy": "full"},
+                {"scorer": "bi_encoder", "body_strategy": "summary_first_512"},
+                {"scorer": "cross_encoder", "body_strategy": "full"}
+            ]
+        },
+        {
+            "name": "cascade",
+            "variants": [
+                {"stage1_threshold": 0.8, "stage2_threshold": 0.7}
+            ]
+        }
+    ],
+    "datasets": ["data/processed/benchmark_combined.jsonl"],
+    "length_bins": true,
+    "attack_type_breakdown": true,
+    "target_fprs": [0.001, 0.005, 0.01],
+    "n_efficiency_runs": 3
+}
