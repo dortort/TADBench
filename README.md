@@ -1,9 +1,9 @@
 # TADBench: A Unified Benchmark for Embedding-Based Threat Detection in LLM Prompts
 
 TADBench is a reproducible benchmark for evaluating embedding-based techniques that detect
-malicious or misuse-intent prompts before they reach an LLM. It provides standardised
-datasets, detector implementations, an evaluation harness, and a CLI that runs the full
-pipeline from raw data to a results matrix.
+malicious prompts before they reach an LLM. It provides standardized datasets, detector
+implementations, an evaluation harness, and a CLI that runs the full pipeline from raw
+data to a results matrix.
 
 ---
 
@@ -13,9 +13,9 @@ Three complementary detection techniques are benchmarked, plus a cascade that co
 
 ### Threat-Prototype Similarity (TPS)
 
-Embeds each prompt and performs a FAISS nearest-neighbour search against a bank of known
+Embeds each prompt and performs a FAISS nearest-neighbor search against a bank of known
 malicious prompts collected from the training splits. The maximum (or mean) cosine similarity
-to the top-k neighbours is the anomaly score. Supports flat and HNSW FAISS index types.
+to the top-k neighbors is the threat score. Supports flat and HNSW FAISS index types.
 
 ### Intra-Prompt Semantic Outlier Detection (IPSOD)
 
@@ -27,8 +27,8 @@ benign content.
 
 ### Intent-Content Consistency Detection (ICCD)
 
-Measures the semantic mismatch between the advertised description of a task (the "system
-prompt" the operator provides) and the actual prompt body. A bi-encoder computes cosine
+Measures the semantic mismatch between the advertised task description and the actual
+prompt body. A bi-encoder computes cosine
 similarity; a cross-encoder (DeBERTa NLI) provides a second scorer. Low consistency
 signals that the prompt body is doing something different from what was described — a
 strong indicator of prompt injection or role-override attacks.
@@ -39,7 +39,7 @@ Chains TPS -> IPSOD -> ICCD with early exit. A sample that exceeds the stage-1 t
 is immediately classified malicious without running IPSOD or ICCD. A sample that passes
 stage 1 but exceeds the stage-2 threshold skips ICCD. Only prompts that pass both gates
 reach the most expensive stage. This mirrors production deployment where cheap filters guard
-expensive ones. The benchmark records the average stage reached and the fraction of traffic
+expensive ones. The benchmark records the average stage reached and the fraction of samples
 filtered at each gate.
 
 ---
@@ -54,7 +54,7 @@ filtered at each gate.
 | Synthetic mismatch | Generated | ~3,000 | Benign pairs, malicious injections, hard-negative cross-category pairs |
 | Adversarial evasion | Generated | ~600 | 200 TPS-evasion, 200 IPSOD-evasion, 200 ICCD-evasion samples |
 
-All datasets are normalised to the unified `BenchmarkSample` schema (see below).
+All datasets are normalized to the unified `BenchmarkSample` schema (see below).
 
 ---
 
@@ -78,7 +78,7 @@ The `large` model uses instruction prefixes (`query: ` / `passage: `) as require
 Python 3.10 or later is required.
 
 ```bash
-git clone https://github.com/your-org/TADBench
+git clone https://github.com/dortort/TADBench
 cd TADBench
 pip install -e ".[dev]"
 ```
@@ -196,7 +196,7 @@ aggregated into a single CSV.
 ### `tadbench drift-eval`
 
 Evaluates detection performance across prompt-length bins and per-attack-type holdout
-files to characterise distribution drift.
+files to characterize distribution drift.
 
 ### `tadbench scaling`
 
@@ -214,9 +214,9 @@ Every `run` and `matrix` invocation reports the following metrics:
 - `auprc` — Area Under the Precision-Recall Curve (average precision).
 - `tpr_at_fpr` — True Positive Rate at FPR targets of 0.1%, 0.5%, and 1.0%.
 - `calibration_error` — Expected Calibration Error (ECE) across 10 equal-width bins.
-- `per_attack_recall` — Per-attack-type AUROC breakdown (direct_injection,
-  hidden_instruction, role_override, exfiltration, jailbreak, indirect_injection,
-  tool_misuse, tps_evasion, ipsod_evasion, iccd_evasion).
+- `per_attack_recall` — Per-attack-type recall at the calibrated threshold
+  (direct_injection, hidden_instruction, role_override, exfiltration, jailbreak,
+  indirect_injection, tool_misuse, tps_evasion, ipsod_evasion, iccd_evasion).
 
 **Efficiency**
 - `p50_ms`, `p95_ms`, `p99_ms` — Latency percentiles measured per sample.
