@@ -303,4 +303,4 @@ All paths can be overridden without modifying source code:
 
 ## License
 
-MIT. See `pyproject.toml` for the full license declaration.
+MIT. See [LICENSE](LICENSE) for the full text.
