@@ -36,6 +36,8 @@ data/processed/benchmark_test_{short,medium,long,very_long}.jsonl
 data/processed/drift_holdout_<attack_type>.jsonl
 data/processed/benchmark_combined.jsonl
 data/processed/benchmark_val_combined.jsonl
+data/processed/benchmark_description_combined.jsonl
+data/processed/benchmark_description_val_combined.jsonl
 ```
 
 ---
@@ -194,8 +196,10 @@ source. Not used as evaluation data.
 
 | File | Content |
 |---|---|
-| `benchmark_combined.jsonl` | Union of all test splits plus all adversarial evasion files. Primary evaluation file used by `tadbench run` and `tadbench matrix`. |
-| `benchmark_val_combined.jsonl` | Union of all val splits (PromptShield, deepset, SPML, synthetic mismatch). Used by `tadbench calibrate`. |
+| `benchmark_combined.jsonl` | Union of all test splits plus all adversarial evasion files. Primary evaluation file for TPS and IPSOD. |
+| `benchmark_val_combined.jsonl` | Union of all val splits (PromptShield, deepset, SPML, synthetic mismatch). General validation file for TPS and IPSOD. |
+| `benchmark_description_combined.jsonl` | Description-compatible subset of the combined benchmark. Use for ICCD, cascade, and `tadbench run --technique all`. |
+| `benchmark_description_val_combined.jsonl` | Description-compatible validation subset. Use for ICCD, cascade, and full-technique calibration. |
 
 ### Length-Binned Subsets
 

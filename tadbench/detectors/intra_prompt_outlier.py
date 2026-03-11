@@ -126,24 +126,26 @@ class IntraPromptOutlierDetector(BaseDetector):
         n = len(embeddings)
 
         if self.outlier_detector_name == "lof":
-            from pyod.models.lof import LOF
+            from sklearn.neighbors import LocalOutlierFactor
 
             n_neighbors = min(3, n - 1)
-            detector = LOF(n_neighbors=max(1, n_neighbors))
+            detector = LocalOutlierFactor(n_neighbors=max(1, n_neighbors))
+            detector.fit_predict(embeddings)
+            return (-detector.negative_outlier_factor_).astype(float)
         elif self.outlier_detector_name == "iforest":
-            from pyod.models.iforest import IForest
+            from sklearn.ensemble import IsolationForest
 
-            detector = IForest(n_estimators=50, contamination=0.1)
+            detector = IsolationForest(
+                n_estimators=50,
+                contamination=0.1,
+                random_state=42,
+            )
+            detector.fit(embeddings)
+            return (-detector.score_samples(embeddings)).astype(float)
         elif self.outlier_detector_name == "ecod":
-            from pyod.models.ecod import ECOD
-
-            detector = ECOD()
+            return _ecod_scores(embeddings)
         else:
             raise ValueError(f"Unknown outlier_detector: {self.outlier_detector_name!r}")
-
-        detector.fit(embeddings)
-        # decision_scores_ are raw anomaly scores (higher = more anomalous)
-        return detector.decision_scores_
 
     def _aggregate(self, anomaly_scores: np.ndarray, embeddings: np.ndarray) -> float:
         """Aggregate per-chunk anomaly scores into a single prompt score."""
@@ -206,3 +208,26 @@ def _pad_chunks(
             break
 
     return result
+
+
+def _ecod_scores(embeddings: np.ndarray) -> np.ndarray:
+    """Compute ECOD-style empirical tail scores without an external dependency."""
+    n, _ = embeddings.shape
+    if n == 0:
+        return np.array([], dtype=float)
+
+    ranks_low = _column_ranks(embeddings)
+    ranks_high = n - ranks_low + 1
+
+    tail_low = -np.log(ranks_low / (n + 1.0))
+    tail_high = -np.log(ranks_high / (n + 1.0))
+    return np.max(np.maximum(tail_low, tail_high), axis=1).astype(float)
+
+
+def _column_ranks(values: np.ndarray) -> np.ndarray:
+    """Return 1-based ascending ranks per column."""
+    order = np.argsort(values, axis=0, kind="mergesort")
+    ranks = np.empty_like(order, dtype=float)
+    row_indices = np.arange(1, values.shape[0] + 1, dtype=float)[:, None]
+    np.put_along_axis(ranks, order, row_indices, axis=0)
+    return ranks

@@ -6,20 +6,19 @@ build-backend = "setuptools.build_meta"
 name = "tadbench"
 version = "0.1.0"
 description = "A Unified Benchmark for Embedding-Based Threat Detection in LLM Prompts"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 license = {text = "MIT"}
 dependencies = [
     "sentence-transformers>=4.0",
     "faiss-cpu>=1.7",
-    "pyod>=2.0",
     "scikit-learn>=1.4",
     "datasets>=2.0",
-    "transformers>=4.40",
+    "transformers>=4.40,<5",
     "nltk>=3.8",
     "psutil>=5.9",
     "click>=8.0",
     "tqdm>=4.60",
-    "numpy",
+    "numpy<2",
     "pandas",
     "h5py",
 ]

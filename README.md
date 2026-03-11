@@ -19,8 +19,8 @@ to the top-k neighbors is the threat score. Supports flat and HNSW FAISS index t
 
 ### Intra-Prompt Semantic Outlier Detection (IPSOD)
 
-Splits each prompt into sentence-level chunks, embeds every chunk, then applies a
-`pyod` outlier detector (LOF, Isolation Forest, or ECOD) to the chunk embedding matrix.
+Splits each prompt into sentence-level chunks, embeds every chunk, then applies an
+outlier detector (LOF, Isolation Forest, or ECOD) to the chunk embedding matrix.
 The aggregate outlier score (max or zscore-max) flags prompts that contain at least one
 semantically anomalous segment — the hallmark of a hidden injection buried in otherwise
 benign content.
@@ -75,15 +75,17 @@ The `large` model uses instruction prefixes (`query: ` / `passage: `) as require
 
 ## Installation
 
-Python 3.10 or later is required.
+Python 3.10-3.12 is required. Python 3.11 is the recommended local default.
 
 ```bash
 git clone https://github.com/dortort/TADBench
 cd TADBench
+python3.11 -m venv .venv
+. .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-Core dependencies: `sentence-transformers`, `faiss-cpu`, `pyod`, `scikit-learn`,
+Core dependencies: `sentence-transformers`, `faiss-cpu`, `scikit-learn`,
 `datasets`, `transformers`, `nltk`, `psutil`, `click`, `tqdm`, `numpy`, `pandas`, `h5py`.
 
 ---
@@ -101,7 +103,7 @@ tadbench prepare
 tadbench build-index --embedder small
 
 # 4. Calibrate detection thresholds on the validation set
-tadbench calibrate --embedder small --dataset data/processed/benchmark_val_combined.jsonl
+tadbench calibrate --embedder small --dataset data/processed/benchmark_description_val_combined.jsonl
 
 # 5. Run a single technique
 tadbench run \
@@ -112,7 +114,7 @@ tadbench run \
 # 6. Run all techniques and produce a combined CSV
 tadbench run \
     --technique all \
-    --dataset data/processed/benchmark_combined.jsonl \
+    --dataset data/processed/benchmark_description_combined.jsonl \
     --embedder small \
     --output results/all_small.csv
 
@@ -140,7 +142,8 @@ each split as Parquet under `data/raw/<dataset>/`.
 
 Transforms raw Parquet files to unified JSONL, generates the synthetic mismatch dataset,
 generates the adversarial evasion sets, and builds all train/val/test splits, the threat
-bank, length-binned subsets, drift holdout files, and combined benchmark sets.
+bank, length-binned subsets, drift holdout files, the general benchmark sets, and
+description-compatible benchmark sets used by ICCD, cascade, and `--technique all`.
 
 ### `tadbench build-index`
 
@@ -179,6 +182,10 @@ Runs one or all detection techniques against a dataset and reports metrics.
 --threat-bank PATH                Override default threat bank path.
 --output PATH                     Output path (.json for single, .csv for all).
 ```
+
+For `intent_content_consistency`, `cascade`, and `--technique all`, use a dataset where
+every sample has a non-empty `advertised_description`, such as
+`data/processed/benchmark_description_combined.jsonl`.
 
 ### `tadbench matrix`
 
@@ -276,7 +283,7 @@ Key fields:
             ]
         }
     ],
-    "datasets": ["data/processed/benchmark_combined.jsonl"],
+    "datasets": ["data/processed/benchmark_description_combined.jsonl"],
     "target_fprs": [0.001, 0.005, 0.01],
     "length_bins": true,
     "attack_type_breakdown": true,
