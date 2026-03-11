@@ -31,6 +31,7 @@ from tadbench.config import (
     RESULTS_DIR,
     TECHNIQUE_DATASET_COMPAT,
 )
+from tadbench.compat import validate_dataset_for_technique
 from tadbench.data.schema import BenchmarkSample, validate_sample
 from tadbench.detectors.base import BaseDetector
 from tadbench.detectors.cascade import CascadeDetector
@@ -198,6 +199,8 @@ class BenchmarkRunner:
         device: str = "cpu",
     ) -> None:
         self.embedder_tier = embedder_tier
+        self.cache = cache
+        self.device = device
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -272,17 +275,14 @@ class BenchmarkRunner:
         test_samples = self._load_samples(dataset_path)
         if not test_samples:
             raise ValueError(f"Dataset is empty: {dataset_path}")
+        validate_dataset_for_technique(technique, test_samples, dataset_path)
 
         # Build detector
         merged_config = _merge_config(technique, detector_config)
         detector = self._create_detector(technique, merged_config)
 
         # Fit detector
-        fit_samples = self._resolve_fit_samples(
-            technique, test_samples, threat_bank_path
-        )
-        logger.info("Fitting detector '%s' on %d samples...", detector.name, len(fit_samples))
-        detector.fit(fit_samples)
+        self._fit_detector(detector, technique, test_samples, threat_bank_path)
 
         # Score test set (cascade path is handled specially)
         y_true = np.array(
@@ -309,19 +309,14 @@ class BenchmarkRunner:
         if val_dataset_path is not None:
             val_samples = self._load_samples(Path(val_dataset_path))
             if val_samples:
-                val_fit = self._resolve_fit_samples(
-                    technique, val_samples, threat_bank_path
-                )
-                # Re-fit on val split if threat_prototype so that the index reflects
-                # the proper threat bank; for other techniques fit is a no-op.
-                if technique in ("threat_prototype", "cascade"):
-                    detector.fit(val_fit)
+                validate_dataset_for_technique(technique, val_samples, Path(val_dataset_path))
+                self._fit_detector(detector, technique, val_samples, threat_bank_path)
                 val_scores = detector.score(val_samples)
                 val_labels = np.array(
                     [1 if s.label == "malicious" else 0 for s in val_samples], dtype=int
                 )
                 # Restore the original fit after calibration scoring
-                detector.fit(fit_samples)
+                self._fit_detector(detector, technique, test_samples, threat_bank_path)
                 try:
                     calibrated_threshold = calibrate_threshold(
                         val_labels, val_scores, target_fpr
@@ -348,7 +343,7 @@ class BenchmarkRunner:
 
         return BenchmarkResult(
             detector_name=detector.name,
-            embedder=self._embedder.model_name,
+            embedder=self.embedder_tier,
             dataset_slice=dataset_path.name,
             auroc=metrics["auroc"],
             auprc=metrics["auprc"],
@@ -386,6 +381,7 @@ class BenchmarkRunner:
             config = json.load(fh)
 
         rows: list[dict] = []
+        embedders: list[str] = config.get("embedders", [self.embedder_tier])
         target_fprs: list[float] = config.get("target_fprs", [0.001, 0.005, 0.01])
         n_efficiency_runs: int = config.get("n_efficiency_runs", 3)
 
@@ -393,63 +389,72 @@ class BenchmarkRunner:
         techniques_cfg: list[dict] = config.get("techniques", [])
 
         total = sum(
-            len(t.get("variants", [{}])) * len(datasets)
+            len(embedders) * len(t.get("variants", [{}])) * len(datasets)
             for t in techniques_cfg
         )
         completed = 0
 
-        for tech_entry in techniques_cfg:
-            technique: str = tech_entry["name"]
-            variants: list[dict] = tech_entry.get("variants", [{}])
+        for emb_tier in embedders:
+            runner = self if emb_tier == self.embedder_tier else BenchmarkRunner(
+                embedder_tier=emb_tier,
+                cache=self.cache,
+                results_dir=self.results_dir,
+                device=self.device,
+            )
+            for tech_entry in techniques_cfg:
+                technique: str = tech_entry["name"]
+                variants: list[dict] = tech_entry.get("variants", [{}])
 
-            for variant in variants:
-                for dataset_path in datasets:
-                    completed += 1
-                    logger.info(
-                        "[%d/%d] technique=%s variant=%s dataset=%s",
-                        completed,
-                        total,
-                        technique,
-                        variant,
-                        dataset_path,
-                    )
-                    try:
-                        result = self.run_single(
-                            technique=technique,
-                            dataset_path=dataset_path,
-                            detector_config=variant,
-                            target_fpr=target_fprs[0] if target_fprs else 0.005,
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        logger.error(
-                            "run_matrix: run failed for technique=%s variant=%s dataset=%s: %s",
+                for variant in variants:
+                    for dataset_path in datasets:
+                        completed += 1
+                        logger.info(
+                            "[%d/%d] embedder=%s technique=%s variant=%s dataset=%s",
+                            completed,
+                            total,
+                            emb_tier,
                             technique,
                             variant,
                             dataset_path,
-                            exc,
                         )
-                        continue
+                        try:
+                            result = runner.run_single(
+                                technique=technique,
+                                dataset_path=dataset_path,
+                                detector_config=variant,
+                                target_fpr=target_fprs[0] if target_fprs else 0.005,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.error(
+                                "run_matrix: run failed for embedder=%s technique=%s variant=%s dataset=%s: %s",
+                                emb_tier,
+                                technique,
+                                variant,
+                                dataset_path,
+                                exc,
+                            )
+                            continue
 
-                    # Expand result to one row per fpr_target
-                    for fpr in target_fprs:
-                        row = result.to_csv_row()
-                        row["fpr_target"] = fpr
-                        row["tpr"] = result.tpr_at_fpr.get(fpr, float("nan"))
-                        rows.append(row)
+                        # Expand result to one row per fpr_target
+                        for fpr in target_fprs:
+                            row = result.to_csv_row()
+                            row["fpr_target"] = fpr
+                            row["tpr"] = result.tpr_at_fpr.get(fpr, float("nan"))
+                            rows.append(row)
 
-                    # Per-attack-type breakdown rows
-                    if config.get("attack_type_breakdown", True):
-                        for attack_type, group_data in result.per_group_metrics.items():
-                            for fpr in target_fprs:
-                                group_row = result.to_csv_row()
-                                group_row["attack_type"] = attack_type
-                                group_row["fpr_target"] = fpr
-                                group_row["tpr"] = group_data.get(
-                                    "tpr_at_fpr", {}
-                                ).get(fpr, float("nan"))
-                                group_row["auroc"] = group_data.get("auroc", float("nan"))
-                                group_row["auprc"] = group_data.get("auprc", float("nan"))
-                                rows.append(group_row)
+                        # Per-attack-type breakdown rows
+                        if config.get("attack_type_breakdown", True):
+                            for attack_type, group_data in result.per_group_metrics.items():
+                                for fpr in target_fprs:
+                                    group_row = result.to_csv_row()
+                                    group_row["attack_type"] = attack_type
+                                    group_row["fpr_target"] = fpr
+                                    group_row["tpr"] = group_data.get(
+                                        "tpr_at_fpr", {}
+                                    ).get(fpr, float("nan"))
+                                    group_row["auroc"] = group_data.get("auroc", float("nan"))
+                                    group_row["auprc"] = group_data.get("auprc", float("nan"))
+                                    rows.append(group_row)
 
         df = pd.DataFrame(rows)
         out_path = self.results_dir / "matrix_results.csv"
@@ -490,6 +495,7 @@ class BenchmarkRunner:
         _validate_technique(technique)
 
         all_samples = self._load_samples(dataset_path)
+        validate_dataset_for_technique(technique, all_samples, dataset_path)
 
         evaluator = DriftEvaluator(holdout_attack_type=holdout_attack)
         train, val, test = evaluator.create_drift_splits(all_samples)
@@ -545,12 +551,13 @@ class BenchmarkRunner:
         _validate_technique(technique)
 
         samples = self._load_samples(dataset_path)
+        validate_dataset_for_technique(technique, samples, dataset_path)
+        validate_dataset_for_technique(technique, samples, dataset_path)
 
         merged_config = _merge_config(technique, detector_config)
         detector = self._create_detector(technique, merged_config)
 
-        fit_samples = self._resolve_fit_samples(technique, samples, threat_bank_path)
-        detector.fit(fit_samples)
+        self._fit_detector(detector, technique, samples, threat_bank_path)
 
         # Define scaling variables per technique
         scaling_variables: dict[str, tuple[str, list]] = _scaling_variables_for(technique)
@@ -703,6 +710,37 @@ class BenchmarkRunner:
             "_load_samples: loaded %d samples from %s", len(samples), dataset_path.name
         )
         return samples
+
+    def _fit_detector(
+        self,
+        detector: BaseDetector,
+        technique: str,
+        samples: list[BenchmarkSample],
+        threat_bank_path: Optional[str | Path],
+    ) -> None:
+        """Fit a detector using benchmark-specific semantics for each technique."""
+        if technique == "threat_prototype":
+            fit_samples = self._resolve_fit_samples(technique, samples, threat_bank_path)
+            logger.info("Fitting detector '%s' on %d samples...", detector.name, len(fit_samples))
+            detector.fit(fit_samples)
+            return
+
+        if technique == "cascade" and isinstance(detector, CascadeDetector):
+            stage1_fit_samples = self._resolve_fit_samples(
+                "threat_prototype", samples, threat_bank_path
+            )
+            logger.info(
+                "Fitting cascade detector: stage1=%d stage2/3=%d",
+                len(stage1_fit_samples),
+                len(samples),
+            )
+            detector._stage1.fit(stage1_fit_samples)
+            detector._stage2.fit(samples)
+            detector._stage3.fit(samples)
+            return
+
+        logger.info("Fitting detector '%s' on %d samples...", detector.name, len(samples))
+        detector.fit(samples)
 
     def _resolve_fit_samples(
         self,

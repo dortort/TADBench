@@ -47,17 +47,17 @@ EMBEDDER_REGISTRY: dict[str, dict] = {
 TECHNIQUE_DATASET_COMPAT: dict[str, list[str]] = {
     "threat_prototype": [
         "promptshield", "deepset", "spml", "synthetic_mismatch", "adversarial",
-        "benchmark_combined",
+        "benchmark_combined", "benchmark_description_combined",
     ],
     "intra_prompt_outlier": [
         "promptshield", "deepset", "spml", "synthetic_mismatch", "adversarial",
-        "benchmark_combined",
+        "benchmark_combined", "benchmark_description_combined",
     ],
     "intent_content_consistency": [
-        "spml", "synthetic_mismatch",
+        "spml", "synthetic_mismatch", "adversarial", "benchmark_description_combined",
     ],
     "cascade": [
-        "spml", "synthetic_mismatch",
+        "spml", "synthetic_mismatch", "adversarial", "benchmark_description_combined",
     ],
 }
 

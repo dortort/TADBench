@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from tadbench.compat import validate_dataset_for_technique
 from tadbench.config import DEFAULT_DETECTOR_CONFIG, PROCESSED_DIR, THRESHOLDS_DIR
 
 
@@ -114,8 +115,26 @@ def calibrate(
     if not raw_samples:
         raise click.ClickException("Dataset is empty.")
 
+    from tadbench.data.schema import validate_sample
+
+    samples = []
+    for row in raw_samples:
+        try:
+            samples.append(validate_sample(row))
+        except Exception:
+            pass
+
+    if not samples:
+        raise click.ClickException("No valid samples after schema validation.")
+
+    for tech in techniques:
+        try:
+            validate_dataset_for_technique(tech, samples, dataset_path)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+
     # Build y_true
-    y_true = np.array([1 if s["label"] == "malicious" else 0 for s in raw_samples])
+    y_true = np.array([1 if s.label == "malicious" else 0 for s in samples])
 
     # Initialise embedder (with optional cache)
     try:
@@ -133,15 +152,6 @@ def calibrate(
         try:
             detector = _build_detector(tech, emb, bank_path, DEFAULT_DETECTOR_CONFIG.get(tech, {}))
             _fit_detector(detector, tech, bank_path, raw_samples)
-
-            from tadbench.data.schema import validate_sample
-            samples = []
-            for row in raw_samples:
-                try:
-                    samples.append(validate_sample(row))
-                except Exception:
-                    pass
-
             y_score = detector.score(samples)
 
             threshold = calibrate_threshold(y_true[: len(y_score)], y_score, target_fpr)
@@ -215,8 +225,17 @@ def _build_detector(technique: str, emb, bank_path: Path, config: dict):
 
 
 def _fit_detector(detector, technique: str, bank_path: Path, raw_samples: list) -> None:
-    """Fit a detector: threat_prototype uses the bank; others use the val samples."""
-    if technique in ("threat_prototype", "cascade"):
+    """Fit a detector with technique-specific benchmark semantics."""
+    from tadbench.data.schema import validate_sample
+
+    samples = []
+    for row in raw_samples:
+        try:
+            samples.append(validate_sample(row))
+        except Exception:
+            pass
+
+    if technique == "threat_prototype":
         if bank_path.exists():
             detector.build_index(bank_path)
         else:
@@ -224,21 +243,19 @@ def _fit_detector(detector, technique: str, bank_path: Path, raw_samples: list) 
                 f"[calibrate] WARNING: threat bank not found at {bank_path}; "
                 "fitting on val samples instead."
             )
-            from tadbench.data.schema import validate_sample
-            samples = []
-            for row in raw_samples:
-                try:
-                    samples.append(validate_sample(row))
-                except Exception:
-                    pass
             malicious = [s for s in samples if s.label == "malicious"]
             detector.fit(malicious or samples)
+    elif technique == "cascade":
+        if bank_path.exists():
+            detector._stage1.build_index(bank_path)
+        else:
+            click.echo(
+                f"[calibrate] WARNING: threat bank not found at {bank_path}; "
+                "fitting cascade stage 1 on validation samples instead."
+            )
+            malicious = [s for s in samples if s.label == "malicious"]
+            detector._stage1.fit(malicious or samples)
+        detector._stage2.fit(samples)
+        detector._stage3.fit(samples)
     else:
-        from tadbench.data.schema import validate_sample
-        samples = []
-        for row in raw_samples:
-            try:
-                samples.append(validate_sample(row))
-            except Exception:
-                pass
         detector.fit(samples)

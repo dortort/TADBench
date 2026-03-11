@@ -30,6 +30,10 @@ def _runner() -> "CliRunner":
     return CR()
 
 
+def _write_dataset(path: Path, rows: list[dict]) -> None:
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # download command
 # ---------------------------------------------------------------------------
@@ -161,6 +165,50 @@ class TestCalibrateCommand:
         result = runner.invoke(cli, ["calibrate", "--help"])
         assert result.exit_code == 0
 
+    def test_calibrate_rejects_dataset_missing_descriptions_for_iccd(self, tmp_path):
+        from click.testing import CliRunner as CR
+        runner = CR()
+        dataset = tmp_path / "mixed_val.jsonl"
+        _write_dataset(
+            dataset,
+            [
+                {
+                    "id": "1",
+                    "advertised_description": "",
+                    "prompt_body": "Prompt body one",
+                    "label": "benign",
+                    "attack_type": "none",
+                    "source": "deepset",
+                    "metadata": {"tokens": 3, "language": "en"},
+                },
+                {
+                    "id": "2",
+                    "advertised_description": "Summarize this content",
+                    "prompt_body": "Prompt body two",
+                    "label": "malicious",
+                    "attack_type": "direct_injection",
+                    "source": "spml",
+                    "metadata": {"tokens": 3, "language": "en"},
+                },
+            ],
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "calibrate",
+                "--technique",
+                "intent_content_consistency",
+                "--dataset",
+                str(dataset),
+                "--embedder",
+                "small",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "requires advertised_description for every sample" in result.output
+
 
 # ---------------------------------------------------------------------------
 # run command
@@ -178,6 +226,50 @@ class TestRunCommand:
         runner = CR()
         result = runner.invoke(cli, ["run"])
         assert result.exit_code != 0
+
+    def test_run_all_rejects_dataset_missing_descriptions(self, tmp_path):
+        from click.testing import CliRunner as CR
+        runner = CR()
+        dataset = tmp_path / "mixed_test.jsonl"
+        _write_dataset(
+            dataset,
+            [
+                {
+                    "id": "1",
+                    "advertised_description": "",
+                    "prompt_body": "Prompt body one",
+                    "label": "benign",
+                    "attack_type": "none",
+                    "source": "promptshield",
+                    "metadata": {"tokens": 3, "language": "en"},
+                },
+                {
+                    "id": "2",
+                    "advertised_description": "Review this request",
+                    "prompt_body": "Prompt body two",
+                    "label": "malicious",
+                    "attack_type": "iccd_evasion",
+                    "source": "adversarial",
+                    "metadata": {"tokens": 3, "language": "en"},
+                },
+            ],
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "run",
+                "--technique",
+                "all",
+                "--dataset",
+                str(dataset),
+                "--embedder",
+                "small",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "benchmark_description_combined.jsonl" in result.output
 
 
 # ---------------------------------------------------------------------------

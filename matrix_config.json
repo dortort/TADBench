@@ -33,7 +33,7 @@
             ]
         }
     ],
-    "datasets": ["data/processed/benchmark_combined.jsonl"],
+    "datasets": ["data/processed/benchmark_description_combined.jsonl"],
     "length_bins": true,
     "attack_type_breakdown": true,
     "target_fprs": [0.001, 0.005, 0.01],

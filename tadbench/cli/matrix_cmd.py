@@ -70,8 +70,6 @@ def matrix(
     embedders = matrix_cfg.get("embedders", ["small"])
     techniques = matrix_cfg.get("techniques", [])
     datasets = matrix_cfg.get("datasets", [])
-    target_fprs = matrix_cfg.get("target_fprs", [0.005])
-
     click.echo(f"[matrix] Config:     {config_path}")
     click.echo(f"[matrix] Embedders:  {embedders}")
     click.echo(f"[matrix] Datasets:   {datasets}")
@@ -96,82 +94,18 @@ def matrix(
                         )
         return
 
-    # Run the matrix
-    try:
-        from tadbench.runner import BenchmarkRunner
-        runner = BenchmarkRunner(
-            embedder_tier=embedders[0],  # runner is re-created per embedder below
-            cache=True,
-            results_dir=str(out_path.parent),
-        )
-        df = runner.run_matrix(str(config_path))
-    except (ImportError, AttributeError):
-        # runner.py not yet implemented — use CLI-level implementation
-        df = _run_matrix_inline(matrix_cfg, embedders, techniques, datasets, target_fprs)
+    from tadbench.runner import BenchmarkRunner
+
+    runner = BenchmarkRunner(
+        embedder_tier=embedders[0],
+        cache=True,
+        results_dir=str(out_path.parent),
+    )
+    df = runner.run_matrix(str(config_path))
 
     if df is None or (hasattr(df, "__len__") and len(df) == 0):
         raise click.ClickException("Matrix run produced no results.")
 
-    # Save CSV
-    try:
-        df.to_csv(out_path, index=False)
-        click.echo(f"\n[matrix] Results written to: {out_path}")
-        click.echo(f"[matrix] {len(df):,} rows x {len(df.columns)} columns")
-    except AttributeError:
-        # df might be a list of dicts if pandas unavailable
-        import csv
-        if df:
-            with out_path.open("w", newline="", encoding="utf-8") as fh:
-                writer = csv.DictWriter(fh, fieldnames=list(df[0].keys()))
-                writer.writeheader()
-                writer.writerows(df)
-        click.echo(f"\n[matrix] Results written to: {out_path}")
-        click.echo(f"[matrix] {len(df)} rows")
-
-
-def _run_matrix_inline(
-    matrix_cfg: dict,
-    embedders: list[str],
-    techniques: list[dict],
-    datasets: list[str],
-    target_fprs: list[float],
-):
-    """Fallback inline matrix runner when BenchmarkRunner is unavailable."""
-    import subprocess
-    import sys
-
-    all_rows: list[dict] = []
-
-    for emb_tier in embedders:
-        for tech in techniques:
-            tech_name = tech["name"]
-            for ds in datasets:
-                ds_path = Path(ds)
-                if not ds_path.exists():
-                    click.echo(f"[matrix]   SKIP (not found): {ds}")
-                    continue
-
-                click.echo(f"\n[matrix] Running: {emb_tier} / {tech_name} / {ds_path.name}")
-                try:
-                    result = subprocess.run(
-                        [
-                            sys.executable, "bench.py", "run",
-                            "--technique", tech_name,
-                            "--dataset", str(ds_path),
-                            "--embedder", emb_tier,
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=600,
-                    )
-                    if result.returncode == 0:
-                        click.echo(f"[matrix]   OK")
-                    else:
-                        click.echo(f"[matrix]   FAILED (exit {result.returncode})")
-                        click.echo(result.stderr[-500:] if result.stderr else "")
-                except subprocess.TimeoutExpired:
-                    click.echo(f"[matrix]   TIMEOUT")
-                except Exception as exc:
-                    click.echo(f"[matrix]   ERROR: {exc}")
-
-    return all_rows
+    df.to_csv(out_path, index=False)
+    click.echo(f"\n[matrix] Results written to: {out_path}")
+    click.echo(f"[matrix] {len(df):,} rows x {len(df.columns)} columns")

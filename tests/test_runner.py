@@ -31,6 +31,8 @@ pytestmark = pytest.mark.skipif(
 
 from tadbench.data.schema import BenchmarkSample
 from tadbench.config import TECHNIQUE_DATASET_COMPAT
+from tadbench.evaluation.efficiency import EfficiencyReport
+from tadbench.runner import BenchmarkResult
 
 
 # ---------------------------------------------------------------------------
@@ -171,17 +173,11 @@ class TestCompatibilityCheck:
         with patch("tadbench.runner.SentenceTransformerEmbedder", return_value=mock_embedder):
             runner = BenchmarkRunner(embedder_tier="small", cache=False, results_dir=str(tmp_path))
 
-        # The runner should either raise or return an error result when >50% of
-        # samples have empty descriptions and technique is intent_content_consistency
-        try:
+        with pytest.raises(ValueError, match="requires advertised_description for every sample"):
             result = runner.run_single(
                 technique="intent_content_consistency",
                 dataset_path=str(dataset_path),
             )
-            # If it returns a result, it should signal a problem somehow
-            # (e.g., auroc=0.0, error field set, or warning issued)
-        except (ValueError, RuntimeError):
-            pass  # This is also acceptable behaviour
 
 
 # ---------------------------------------------------------------------------
@@ -223,3 +219,53 @@ class TestDetectorFactory:
 
         with pytest.raises((ValueError, KeyError)):
             create_fn("nonexistent_technique", {})
+
+
+class TestRunMatrix:
+    def test_run_matrix_uses_all_configured_embedders(self, mock_embedder, tmp_path):
+        dataset_path = _make_sample_file(tmp_path, n_benign=2, n_malicious=2)
+        config_path = tmp_path / "matrix.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "embedders": ["small", "medium"],
+                    "datasets": [str(dataset_path)],
+                    "techniques": [
+                        {"name": "threat_prototype", "variants": [{"top_k": 1}]},
+                    ],
+                    "target_fprs": [0.001],
+                    "attack_type_breakdown": False,
+                }
+            )
+        )
+
+        with patch("tadbench.runner.SentenceTransformerEmbedder", return_value=mock_embedder):
+            runner = BenchmarkRunner(embedder_tier="small", cache=False, results_dir=str(tmp_path))
+
+        def _fake_run_single(self, technique, dataset_path, detector_config=None, target_fpr=0.005, val_dataset_path=None, threat_bank_path=None):
+            return BenchmarkResult(
+                detector_name=technique,
+                embedder=self.embedder_tier,
+                dataset_slice=Path(dataset_path).name,
+                auroc=0.5,
+                auprc=0.5,
+                tpr_at_fpr={0.001: 0.25},
+                calibration_error=0.0,
+                per_attack_recall={},
+                per_group_metrics={},
+                efficiency=EfficiencyReport(
+                    p50_ms=1.0,
+                    p95_ms=1.0,
+                    p99_ms=1.0,
+                    throughput_rps=10.0,
+                    peak_rss_mb=0.0,
+                    cpu_utilization_pct=0.0,
+                ),
+                target_fpr=target_fpr,
+            )
+
+        with patch.object(BenchmarkRunner, "run_single", new=_fake_run_single):
+            df = runner.run_matrix(config_path)
+
+        assert set(df["embedder"]) == {"small", "medium"}
+        assert len(df) == 2

@@ -8,7 +8,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from tadbench.compat import (
+    DESCRIPTION_COMPATIBLE_DATASET,
+    DESCRIPTION_COMPATIBLE_VAL_DATASET,
+)
 from tadbench.config import PROCESSED_DIR
+from tadbench.data.schema import has_description
 from tadbench.utils.io import read_jsonl, write_jsonl
 
 # ---------------------------------------------------------------------------
@@ -281,7 +286,7 @@ def build_drift_holdout_splits(
 # ---------------------------------------------------------------------------
 
 def build_combined_sets(processed_dir: Path) -> None:
-    """Build benchmark_combined.jsonl and benchmark_val_combined.jsonl."""
+    """Build combined benchmark datasets for shared and description-only runs."""
     print("[splits] Building combined benchmark sets ...")
 
     test_sources = [
@@ -325,6 +330,17 @@ def build_combined_sets(processed_dir: Path) -> None:
             f"{malicious:,} malicious -> {out_path}"
         )
 
+        description_only_test = [record for record in combined_test if has_description(record)]
+        desc_path = processed_dir / DESCRIPTION_COMPATIBLE_DATASET
+        write_jsonl(description_only_test, desc_path)
+        malicious = sum(
+            1 for record in description_only_test if record.get("label") == "malicious"
+        )
+        print(
+            f"[splits] {DESCRIPTION_COMPATIBLE_DATASET}: {len(description_only_test):,} total, "
+            f"{malicious:,} malicious -> {desc_path}"
+        )
+
     if combined_val:
         out_path = processed_dir / "benchmark_val_combined.jsonl"
         write_jsonl(combined_val, out_path)
@@ -332,6 +348,17 @@ def build_combined_sets(processed_dir: Path) -> None:
         print(
             f"[splits] benchmark_val_combined.jsonl: {len(combined_val):,} total, "
             f"{malicious:,} malicious -> {out_path}"
+        )
+
+        description_only_val = [record for record in combined_val if has_description(record)]
+        desc_path = processed_dir / DESCRIPTION_COMPATIBLE_VAL_DATASET
+        write_jsonl(description_only_val, desc_path)
+        malicious = sum(
+            1 for record in description_only_val if record.get("label") == "malicious"
+        )
+        print(
+            f"[splits] {DESCRIPTION_COMPATIBLE_VAL_DATASET}: {len(description_only_val):,} total, "
+            f"{malicious:,} malicious -> {desc_path}"
         )
 
 

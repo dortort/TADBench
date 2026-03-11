@@ -8,11 +8,11 @@ from typing import Any
 
 import click
 
+from tadbench.compat import validate_dataset_for_technique
 from tadbench.config import (
     DEFAULT_DETECTOR_CONFIG,
     PROCESSED_DIR,
     RESULTS_DIR,
-    THRESHOLDS_DIR,
 )
 
 ALL_TECHNIQUES = ["threat_prototype", "intra_prompt_outlier", "intent_content_consistency", "cascade"]
@@ -186,6 +186,12 @@ def run(
 
     y_true = np.array([1 if s.label == "malicious" else 0 for s in samples])
     groups = [s.attack_type for s in samples]
+
+    for tech in techniques:
+        try:
+            validate_dataset_for_technique(tech, samples, dataset_path)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
 
     # Load embedder
     try:
