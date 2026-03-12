@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 import numpy as np
 import psutil
@@ -15,6 +15,34 @@ if TYPE_CHECKING:
     from tadbench.detectors.base import BaseDetector
 
 logger = logging.getLogger(__name__)
+
+BenchmarkMode = Literal["full", "fast"]
+
+
+@dataclass(frozen=True)
+class ProfilingModeConfig:
+    """Execution profile for efficiency measurements."""
+
+    mode: BenchmarkMode
+    latency_runs: int
+    max_latency_samples: int | None
+    max_throughput_samples: int | None
+
+
+MATRIX_PROFILING_MODES: dict[BenchmarkMode, ProfilingModeConfig] = {
+    "full": ProfilingModeConfig(
+        mode="full",
+        latency_runs=3,
+        max_latency_samples=None,
+        max_throughput_samples=None,
+    ),
+    "fast": ProfilingModeConfig(
+        mode="fast",
+        latency_runs=1,
+        max_latency_samples=100,
+        max_throughput_samples=250,
+    ),
+}
 
 
 @dataclass
@@ -32,6 +60,8 @@ class EfficiencyReport:
     embedding_calls_per_sample: float = 1.0
     total_tokens_embedded: int = 0
     cross_encoder_calls_per_sample: float = 0.0
+    latency_profile_samples: int = 0
+    throughput_profile_samples: int = 0
 
 
 class LatencyProfiler:
@@ -42,6 +72,8 @@ class LatencyProfiler:
         detector: "BaseDetector",
         samples: list["BenchmarkSample"],
         n_runs: int = 3,
+        max_latency_samples: int | None = None,
+        max_throughput_samples: int | None = None,
     ) -> EfficiencyReport:
         """Profile a detector on the provided samples.
 
@@ -55,6 +87,10 @@ class LatencyProfiler:
             detector: Fitted detector implementing BaseDetector.
             samples: Samples to score (should already have been seen in fit if required).
             n_runs: Number of repetition runs for latency measurement.
+            max_latency_samples: Optional cap on samples used for per-sample
+                latency profiling.
+            max_throughput_samples: Optional cap on samples used for batch
+                throughput/RSS/CPU measurement.
 
         Returns:
             EfficiencyReport with all measured fields populated.
@@ -68,14 +104,22 @@ class LatencyProfiler:
                 throughput_rps=0.0,
                 peak_rss_mb=0.0,
                 cpu_utilization_pct=0.0,
+                latency_profile_samples=0,
+                throughput_profile_samples=0,
             )
 
         process = psutil.Process()
+        latency_samples = samples[:max_latency_samples] if max_latency_samples is not None else samples
+        throughput_samples = (
+            samples[:max_throughput_samples]
+            if max_throughput_samples is not None
+            else samples
+        )
 
         # --- Per-sample latency via score_single() ---
         all_latencies_ms: list[float] = []
         for _ in range(n_runs):
-            for sample in samples:
+            for sample in latency_samples:
                 t0 = time.perf_counter()
                 detector.score_single(sample)
                 t1 = time.perf_counter()
@@ -93,13 +137,13 @@ class LatencyProfiler:
         process.cpu_percent(interval=None)
 
         batch_t0 = time.perf_counter()
-        detector.score(samples)
+        detector.score(throughput_samples)
         batch_elapsed = time.perf_counter() - batch_t0
 
         cpu_pct = process.cpu_percent(interval=None)
         rss_after = process.memory_info().rss
 
-        throughput = len(samples) / batch_elapsed if batch_elapsed > 0 else 0.0
+        throughput = len(throughput_samples) / batch_elapsed if batch_elapsed > 0 else 0.0
         peak_rss_mb = max(0.0, (rss_after - rss_before) / (1024 * 1024))
 
         # --- Cost proxies ---
@@ -123,7 +167,14 @@ class LatencyProfiler:
             embedding_calls_per_sample=embedding_calls,
             total_tokens_embedded=total_tokens,
             cross_encoder_calls_per_sample=cross_encoder_calls,
+            latency_profile_samples=len(latency_samples),
+            throughput_profile_samples=len(throughput_samples),
         )
+
+
+def resolve_matrix_profiling_mode(mode: BenchmarkMode) -> ProfilingModeConfig:
+    """Return the profiling configuration used by runner-backed benchmarks."""
+    return MATRIX_PROFILING_MODES[mode]
 
 
 def measure_index_build_time(

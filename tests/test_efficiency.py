@@ -117,6 +117,39 @@ class TestLatencyProfiler:
         assert report.p50_ms == 0.0
         assert report.throughput_rps == 0.0
 
+    def test_sampling_caps_latency_and_throughput_work(self):
+        class CountingDetector:
+            embedding_calls_per_sample = 1
+            cross_encoder_calls_per_sample = 0
+
+            def __init__(self):
+                self.score_single_calls = 0
+                self.batch_sizes: list[int] = []
+
+            def score_single(self, sample):
+                self.score_single_calls += 1
+                return 0.0
+
+            def score(self, samples):
+                self.batch_sizes.append(len(samples))
+                return np.zeros(len(samples))
+
+        det = CountingDetector()
+        samples = _make_samples(10)
+        profiler = LatencyProfiler()
+        report = profiler.profile_detector(
+            det,
+            samples,
+            n_runs=2,
+            max_latency_samples=3,
+            max_throughput_samples=4,
+        )
+
+        assert det.score_single_calls == 6
+        assert det.batch_sizes == [4]
+        assert report.latency_profile_samples == 3
+        assert report.throughput_profile_samples == 4
+
 
 class TestEfficiencyReportFields:
     def test_all_fields_present(self, mock_embedder):
@@ -136,6 +169,8 @@ class TestEfficiencyReportFields:
         assert hasattr(report, "embedding_calls_per_sample")
         assert hasattr(report, "total_tokens_embedded")
         assert hasattr(report, "cross_encoder_calls_per_sample")
+        assert hasattr(report, "latency_profile_samples")
+        assert hasattr(report, "throughput_profile_samples")
 
 
 class TestMeasureIndexBuildTime:

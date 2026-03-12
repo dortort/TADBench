@@ -47,6 +47,7 @@ from tadbench.evaluation.efficiency import (
     EfficiencyReport,
     LatencyProfiler,
     measure_scaling_curves,
+    resolve_matrix_profiling_mode,
 )
 from tadbench.evaluation.metrics import compute_all_metrics
 from tadbench.utils.io import stream_jsonl
@@ -92,6 +93,7 @@ class BenchmarkResult:
     # Calibration metadata
     target_fpr: float = 0.005
     calibrated_threshold: Optional[float] = None
+    benchmark_mode: str = "full"
 
     def to_dict(self) -> dict:
         """Serialise to a plain dict suitable for JSON output."""
@@ -102,6 +104,7 @@ class BenchmarkResult:
             "dataset_slice": self.dataset_slice,
             "target_fpr": self.target_fpr,
             "calibrated_threshold": self.calibrated_threshold,
+            "benchmark_mode": self.benchmark_mode,
             "auroc": self.auroc,
             "auprc": self.auprc,
             "tpr_at_fpr": {str(k): v for k, v in self.tpr_at_fpr.items()},
@@ -120,6 +123,8 @@ class BenchmarkResult:
                 "embedding_calls_per_sample": eff.embedding_calls_per_sample,
                 "total_tokens_embedded": eff.total_tokens_embedded,
                 "cross_encoder_calls_per_sample": eff.cross_encoder_calls_per_sample,
+                "latency_profile_samples": eff.latency_profile_samples,
+                "throughput_profile_samples": eff.throughput_profile_samples,
             },
             "cascade_metrics": self.cascade_metrics,
         }
@@ -140,6 +145,7 @@ class BenchmarkResult:
             "detector_name": self.detector_name,
             "embedder": self.embedder,
             "dataset_slice": self.dataset_slice,
+            "benchmark_mode": self.benchmark_mode,
             "attack_type": "all",
             "fpr_target": self.target_fpr,
             "tpr": self.tpr_at_fpr.get(self.target_fpr, float("nan")),
@@ -154,6 +160,8 @@ class BenchmarkResult:
             "embedding_calls": eff.embedding_calls_per_sample,
             "total_tokens": eff.total_tokens_embedded,
             "cross_encoder_calls": eff.cross_encoder_calls_per_sample,
+            "latency_profile_samples": eff.latency_profile_samples,
+            "throughput_profile_samples": eff.throughput_profile_samples,
         }
         # Add cascade fields (NaN when not applicable)
         if self.cascade_metrics:
@@ -234,6 +242,7 @@ class BenchmarkRunner:
         target_fpr: float = 0.005,
         val_dataset_path: Optional[str | Path] = None,
         threat_bank_path: Optional[str | Path] = None,
+        benchmark_mode: str = "full",
     ) -> BenchmarkResult:
         """Run a single detection technique on a dataset.
 
@@ -255,6 +264,9 @@ class BenchmarkRunner:
         threat_bank_path:
             Path to a threat-bank JSONL file.  Required for ``threat_prototype``
             and ``cascade`` techniques.
+        benchmark_mode:
+            Efficiency profiling mode: ``"full"`` preserves the exhaustive
+            matrix profiling behavior, while ``"fast"`` uses sampled estimates.
 
         Returns
         -------
@@ -268,6 +280,8 @@ class BenchmarkRunner:
             ``TECHNIQUE_DATASET_COMPAT``), or if required arguments are missing.
         """
         dataset_path = Path(dataset_path)
+        if benchmark_mode not in {"full", "fast"}:
+            raise ValueError("benchmark_mode must be 'full' or 'fast'")
         _validate_technique(technique)
         _check_dataset_compat(technique, dataset_path)
 
@@ -338,8 +352,15 @@ class BenchmarkRunner:
         )
 
         # Profile efficiency
+        profiling_cfg = resolve_matrix_profiling_mode(benchmark_mode)
         profiler = LatencyProfiler()
-        efficiency = profiler.profile_detector(detector, test_samples)
+        efficiency = profiler.profile_detector(
+            detector,
+            test_samples,
+            n_runs=profiling_cfg.latency_runs,
+            max_latency_samples=profiling_cfg.max_latency_samples,
+            max_throughput_samples=profiling_cfg.max_throughput_samples,
+        )
 
         return BenchmarkResult(
             detector_name=detector.name,
@@ -355,9 +376,10 @@ class BenchmarkRunner:
             cascade_metrics=cascade_metrics,
             target_fpr=target_fpr,
             calibrated_threshold=calibrated_threshold,
+            benchmark_mode=benchmark_mode,
         )
 
-    def run_matrix(self, config_path: str | Path) -> pd.DataFrame:
+    def run_matrix(self, config_path: str | Path, benchmark_mode: str = "full") -> pd.DataFrame:
         """Run the full benchmark matrix defined by a JSON config file.
 
         The config schema matches ``matrix_config.json`` in the project root.
@@ -369,6 +391,8 @@ class BenchmarkRunner:
         ----------
         config_path:
             Path to the matrix configuration JSON file.
+        benchmark_mode:
+            Efficiency profiling mode forwarded to :meth:`run_single`.
 
         Returns
         -------
@@ -377,6 +401,8 @@ class BenchmarkRunner:
             :meth:`BenchmarkResult.to_csv_row`.
         """
         config_path = Path(config_path)
+        if benchmark_mode not in {"full", "fast"}:
+            raise ValueError("benchmark_mode must be 'full' or 'fast'")
         with config_path.open("r", encoding="utf-8") as fh:
             config = json.load(fh)
 
@@ -423,6 +449,7 @@ class BenchmarkRunner:
                                 dataset_path=dataset_path,
                                 detector_config=variant,
                                 target_fpr=target_fprs[0] if target_fprs else 0.005,
+                                benchmark_mode=benchmark_mode,
                             )
                         except Exception as exc:  # noqa: BLE001
                             logger.error(

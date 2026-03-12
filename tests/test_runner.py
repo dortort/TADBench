@@ -242,7 +242,16 @@ class TestRunMatrix:
         with patch("tadbench.runner.SentenceTransformerEmbedder", return_value=mock_embedder):
             runner = BenchmarkRunner(embedder_tier="small", cache=False, results_dir=str(tmp_path))
 
-        def _fake_run_single(self, technique, dataset_path, detector_config=None, target_fpr=0.005, val_dataset_path=None, threat_bank_path=None):
+        def _fake_run_single(
+            self,
+            technique,
+            dataset_path,
+            detector_config=None,
+            target_fpr=0.005,
+            val_dataset_path=None,
+            threat_bank_path=None,
+            benchmark_mode="full",
+        ):
             return BenchmarkResult(
                 detector_name=technique,
                 embedder=self.embedder_tier,
@@ -262,10 +271,12 @@ class TestRunMatrix:
                     cpu_utilization_pct=0.0,
                 ),
                 target_fpr=target_fpr,
+                benchmark_mode=benchmark_mode,
             )
 
         with patch.object(BenchmarkRunner, "run_single", new=_fake_run_single):
-            df = runner.run_matrix(config_path)
+            df = runner.run_matrix(config_path, benchmark_mode="fast")
 
         assert set(df["embedder"]) == {"small", "medium"}
         assert len(df) == 2
+        assert set(df["benchmark_mode"]) == {"fast"}
