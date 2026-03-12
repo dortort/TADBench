@@ -34,11 +34,20 @@ from tadbench.config import RESULTS_DIR
     default=False,
     help="Print what would be run without executing.",
 )
+@click.option(
+    "--mode",
+    "benchmark_mode",
+    default="full",
+    show_default=True,
+    type=click.Choice(["full", "fast"]),
+    help="Benchmark execution mode. 'full' preserves exhaustive profiling; 'fast' uses sampled efficiency estimates.",
+)
 def matrix(
     config: str,
     output: str | None,
     embedder: str | None,
     dry_run: bool,
+    benchmark_mode: str,
 ) -> None:
     """Run the full benchmark matrix as defined in CONFIG.
 
@@ -75,6 +84,7 @@ def matrix(
     click.echo(f"[matrix] Datasets:   {datasets}")
     click.echo(f"[matrix] Techniques: {[t['name'] for t in techniques]}")
     click.echo(f"[matrix] Output:     {out_path}")
+    click.echo(f"[matrix] Mode:       {benchmark_mode}")
 
     total_runs = sum(
         len(embedders) * len(t.get("variants", [{}])) * len(datasets)
@@ -101,7 +111,7 @@ def matrix(
         cache=True,
         results_dir=str(out_path.parent),
     )
-    df = runner.run_matrix(str(config_path))
+    df = runner.run_matrix(str(config_path), benchmark_mode=benchmark_mode)
 
     if df is None or (hasattr(df, "__len__") and len(df) == 0):
         raise click.ClickException("Matrix run produced no results.")

@@ -17,6 +17,19 @@ from tadbench.config import (
 
 ALL_TECHNIQUES = ["threat_prototype", "intra_prompt_outlier", "intent_content_consistency", "cascade"]
 
+RUN_PROFILING_MODES: dict[str, dict[str, int | None]] = {
+    "full": {
+        "latency_runs": 1,
+        "max_latency_samples": 200,
+        "max_throughput_samples": None,
+    },
+    "fast": {
+        "latency_runs": 1,
+        "max_latency_samples": 50,
+        "max_throughput_samples": 200,
+    },
+}
+
 
 def _load_detector_config(detector_config: str | None) -> dict:
     """Parse detector_config as inline JSON string or JSON file path."""
@@ -85,6 +98,14 @@ def _load_detector_config(detector_config: str | None) -> dict:
     default=None,
     help="Output path: .json for single technique, .csv for all techniques.",
 )
+@click.option(
+    "--mode",
+    "benchmark_mode",
+    default="full",
+    show_default=True,
+    type=click.Choice(["full", "fast"]),
+    help="Benchmark execution mode. 'full' preserves current CLI profiling; 'fast' uses smaller profiling samples.",
+)
 def run(
     technique: str,
     dataset: str,
@@ -94,6 +115,7 @@ def run(
     cache: bool,
     threat_bank: str | None,
     output: str | None,
+    benchmark_mode: str,
 ) -> None:
     """Run detection technique(s) on DATASET and report metrics.
 
@@ -160,6 +182,7 @@ def run(
     click.echo(f"[run] Embedder:   {embedder}")
     click.echo(f"[run] Techniques: {techniques}")
     click.echo(f"[run] Output:     {out_path}")
+    click.echo(f"[run] Mode:       {benchmark_mode}")
 
     # Validate and load dataset
     click.echo("\n[run] Validating dataset ...")
@@ -203,6 +226,7 @@ def run(
 
     # Run each technique
     all_results: list[dict[str, Any]] = []
+    profiling_cfg = RUN_PROFILING_MODES[benchmark_mode]
 
     for tech in techniques:
         click.echo(f"\n[run] === Technique: {tech} ===")
@@ -222,13 +246,35 @@ def run(
             elapsed = time.perf_counter() - t0
             throughput = len(samples) / elapsed if elapsed > 0 else 0.0
 
-            # Latency profiling via score_single on a subset (up to 200 samples)
-            profiling_samples = samples[:200]
+            # Latency profiling uses a capped subset so CLI runs stay tractable.
+            max_latency_samples = profiling_cfg["max_latency_samples"]
+            profiling_samples = (
+                samples[:max_latency_samples]
+                if max_latency_samples is not None
+                else samples
+            )
             latencies_ms: list[float] = []
-            for s in profiling_samples:
-                t_start = time.perf_counter()
-                detector.score_single(s)
-                latencies_ms.append((time.perf_counter() - t_start) * 1000.0)
+            for _ in range(int(profiling_cfg["latency_runs"] or 1)):
+                for s in profiling_samples:
+                    t_start = time.perf_counter()
+                    detector.score_single(s)
+                    latencies_ms.append((time.perf_counter() - t_start) * 1000.0)
+
+            max_throughput_samples = profiling_cfg["max_throughput_samples"]
+            throughput_samples = (
+                samples[:max_throughput_samples]
+                if max_throughput_samples is not None
+                else samples
+            )
+            if len(throughput_samples) != len(samples):
+                throughput_t0 = time.perf_counter()
+                detector.score(throughput_samples)
+                throughput_elapsed = time.perf_counter() - throughput_t0
+                throughput = (
+                    len(throughput_samples) / throughput_elapsed
+                    if throughput_elapsed > 0
+                    else 0.0
+                )
 
             latencies_ms_sorted = sorted(latencies_ms)
             n_lat = len(latencies_ms_sorted)
@@ -272,6 +318,7 @@ def run(
                 "embedder": embedder,
                 "dataset": str(dataset_path),
                 "n_samples": len(samples),
+                "benchmark_mode": benchmark_mode,
                 "auroc": metrics.get("auroc"),
                 "auprc": metrics.get("auprc"),
                 "tpr_at_fpr": metrics.get("tpr_at_fpr", {}),
@@ -287,6 +334,8 @@ def run(
                     len(s.prompt_body.split()) + len(s.advertised_description.split())
                     for s in samples
                 ),
+                "latency_profile_samples": len(profiling_samples),
+                "throughput_profile_samples": len(throughput_samples),
             }
 
             # Cascade-specific fields
@@ -359,6 +408,7 @@ def _write_csv(results: list[dict[str, Any]], path: Path) -> None:
             "embedder": r["embedder"],
             "dataset": r["dataset"],
             "n_samples": r["n_samples"],
+            "benchmark_mode": r.get("benchmark_mode"),
             "auroc": r.get("auroc"),
             "auprc": r.get("auprc"),
             "calibration_error": r.get("calibration_error"),
@@ -370,6 +420,8 @@ def _write_csv(results: list[dict[str, Any]], path: Path) -> None:
             "embedding_calls": r.get("embedding_calls"),
             "total_tokens": r.get("total_tokens"),
             "cross_encoder_calls": r.get("cross_encoder_calls", 0),
+            "latency_profile_samples": r.get("latency_profile_samples"),
+            "throughput_profile_samples": r.get("throughput_profile_samples"),
         }
         # TPR@FPR columns
         for fpr_key, tpr_val in (r.get("tpr_at_fpr") or {}).items():

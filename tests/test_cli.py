@@ -308,6 +308,43 @@ class TestMatrixCommand:
         result = runner.invoke(cli, ["matrix", "--help"])
         assert result.exit_code == 0
 
+    def test_matrix_forwards_mode_to_runner(self, tmp_path):
+        from click.testing import CliRunner as CR
+        import pandas as pd
+
+        runner = CR()
+        config_path = tmp_path / "matrix.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "embedders": ["small"],
+                    "datasets": ["data/processed/benchmark_description_combined.jsonl"],
+                    "techniques": [{"name": "threat_prototype", "variants": [{}]}],
+                }
+            )
+        )
+
+        mock_runner = MagicMock()
+        mock_runner.run_matrix.return_value = pd.DataFrame(
+            [
+                {
+                    "detector_name": "threat_prototype",
+                    "embedder": "small",
+                    "dataset_slice": "benchmark_description_combined.jsonl",
+                    "benchmark_mode": "fast",
+                }
+            ]
+        )
+
+        with patch("tadbench.runner.BenchmarkRunner", return_value=mock_runner):
+            result = runner.invoke(
+                cli,
+                ["matrix", "--config", str(config_path), "--mode", "fast"],
+            )
+
+        assert result.exit_code == 0, f"output: {result.output}\nexc: {result.exception}"
+        mock_runner.run_matrix.assert_called_once_with(str(config_path), benchmark_mode="fast")
+
 
 # ---------------------------------------------------------------------------
 # drift-eval command
