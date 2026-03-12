@@ -120,6 +120,43 @@ tadbench run \
 
 # 7. Run the full benchmark matrix (all embedder x technique x variant combinations)
 tadbench matrix --config matrix_config.json --output results/matrix.csv
+
+# 8. Run the same matrix in fast mode when you need a cheaper sweep
+tadbench matrix --config matrix_config.json --mode fast --output results/matrix_fast.csv
+```
+
+---
+
+## Benchmark Modes
+
+Benchmark execution now supports two explicit modes:
+
+- `full` — preserves the existing benchmark behavior. Use this when you want the most complete efficiency measurements and are willing to pay the runtime cost.
+- `fast` — keeps the same detector/dataset/variant combinations, but samples fewer requests for latency and throughput profiling so the benchmark finishes much sooner.
+
+Mode selection is available on both `tadbench run` and `tadbench matrix` via `--mode`.
+
+Guidance:
+
+- Use `tadbench run --mode full` when you want the most faithful per-technique measurement for a focused experiment.
+- Use `tadbench matrix --mode fast` for large sweeps, CI smoke runs, or remote preflight comparisons before spending time on a full matrix.
+- The output records `benchmark_mode` and profiling sample counts so fast-mode efficiency numbers are identifiable as sampled estimates.
+
+Examples:
+
+```bash
+# Single-technique run with lighter profiling
+tadbench run \
+    --technique threat_prototype \
+    --dataset data/processed/benchmark_description_combined.jsonl \
+    --embedder small \
+    --mode fast
+
+# Full matrix with exhaustive profiling
+tadbench matrix \
+    --config matrix_config.json \
+    --mode full \
+    --output results/matrix.csv
 ```
 
 ---
@@ -181,11 +218,16 @@ Runs one or all detection techniques against a dataset and reports metrics.
 --cache / --no-cache              Cache embeddings across techniques (default: on).
 --threat-bank PATH                Override default threat bank path.
 --output PATH                     Output path (.json for single, .csv for all).
+--mode [full|fast]                Benchmark mode (default: full).
 ```
 
 For `intent_content_consistency`, `cascade`, and `--technique all`, use a dataset where
 every sample has a non-empty `advertised_description`, such as
 `data/processed/benchmark_description_combined.jsonl`.
+
+`full` preserves the existing CLI profiling behavior. `fast` reduces the latency and
+throughput profiling sample sizes so single runs finish sooner while still reporting
+quality metrics on the full dataset.
 
 ### `tadbench matrix`
 
@@ -198,7 +240,13 @@ aggregated into a single CSV.
 --output PATH                     Output CSV (default: results/matrix_results.csv).
 --embedder [small|medium|large]   Override embedder for all runs.
 --dry-run                         Print planned runs without executing.
+--mode [full|fast]                Benchmark mode (default: full).
 ```
+
+`full` preserves the existing exhaustive matrix profiling behavior, including repeated
+per-sample latency measurements across each full dataset slice. `fast` keeps the same
+matrix grid but profiles only sampled subsets for latency and throughput, which makes
+large sweeps substantially cheaper to run.
 
 ### `tadbench drift-eval`
 
@@ -230,6 +278,9 @@ Every `run` and `matrix` invocation reports the following metrics:
 - `throughput_rps` — Samples scored per second (batch).
 - `rss_mb` — Resident set size in MB after scoring.
 - `embedding_calls` — Embedding calls per sample.
+- `benchmark_mode` — Whether the run used `full` or `fast` profiling.
+- `latency_profile_samples`, `throughput_profile_samples` — How many samples were used
+  for the efficiency profiling pass.
 
 **Cascade-specific**
 - `avg_stage_reached` — Mean pipeline stage reached (1, 2, or 3).
