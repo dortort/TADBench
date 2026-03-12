@@ -75,10 +75,10 @@ class TestPrepareCommand:
         out_dir = tmp_path / "processed"
         out_dir.mkdir()
 
-        with patch("tadbench.data.transform.transform_all"), \
-             patch("tadbench.data.generate_synthetic.generate_synthetic", return_value=[]), \
+        with patch("tadbench.data.transform.transform_all") as mock_transform, \
+             patch("tadbench.data.generate_synthetic.generate_synthetic", return_value=[]) as mock_synth, \
              patch("tadbench.data.generate_adversarial.generate_adversarial", return_value={}), \
-             patch("tadbench.data.splits.build_splits"):
+             patch("tadbench.data.splits.build_splits") as mock_build:
             result = runner.invoke(cli, [
                 "prepare",
                 "--raw-dir", str(raw_dir),
@@ -86,6 +86,9 @@ class TestPrepareCommand:
                 "--no-adversarial",
             ])
         assert result.exit_code == 0, f"output: {result.output}\nexc: {result.exception}"
+        mock_transform.assert_called_once_with(raw_dir=raw_dir, output_dir=out_dir)
+        mock_synth.assert_called_once_with(output_path=out_dir / "synthetic_mismatch.jsonl")
+        mock_build.assert_called_once_with(processed_dir=out_dir, threat_bank_sources=None)
 
     def test_prepare_no_adversarial_flag(self, tmp_path):
         from click.testing import CliRunner as CR
@@ -108,6 +111,28 @@ class TestPrepareCommand:
             ])
         # With --no-adversarial, adversarial generator should NOT be called
         mock_adv.assert_not_called()
+
+    def test_prepare_calls_adversarial_generator_with_output_dir(self, tmp_path):
+        from click.testing import CliRunner as CR
+        runner = CR()
+        raw_dir = tmp_path / "raw"
+        raw_dir.mkdir()
+        out_dir = tmp_path / "processed"
+        out_dir.mkdir()
+
+        mock_adv = MagicMock(return_value={})
+        with patch("tadbench.data.transform.transform_all"), \
+             patch("tadbench.data.generate_synthetic.generate_synthetic", return_value=[]), \
+             patch("tadbench.data.generate_adversarial.generate_adversarial", mock_adv), \
+             patch("tadbench.data.splits.build_splits"):
+            result = runner.invoke(cli, [
+                "prepare",
+                "--raw-dir", str(raw_dir),
+                "--output-dir", str(out_dir),
+            ])
+
+        assert result.exit_code == 0, f"output: {result.output}\nexc: {result.exception}"
+        mock_adv.assert_called_once_with(output_dir=out_dir)
 
 
 # ---------------------------------------------------------------------------

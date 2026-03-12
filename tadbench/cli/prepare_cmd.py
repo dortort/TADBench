@@ -70,12 +70,12 @@ def prepare(
 
         # Step 2: generate synthetic mismatch dataset
         click.echo("\n=== Step 2/4: Generating synthetic mismatch dataset ===")
-        generate_synthetic(output_dir=out)
+        generate_synthetic(output_path=out / "synthetic_mismatch.jsonl")
 
         # Step 3: generate adversarial evasion samples
         if include_adversarial:
             click.echo("\n=== Step 3/4: Generating adversarial evasion samples ===")
-            generate_adversarial(output_dir=out, processed_dir=out)
+            generate_adversarial(output_dir=out)
         else:
             click.echo("\n=== Step 3/4: Skipping adversarial generation (--no-adversarial) ===")
 
