@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directories: ["/"]
+    schedule: { interval: monthly }
+    cooldown: { default-days: 7, semver-major-days: 14 }
+    commit-message: { prefix: chore, include: scope }
+    groups:
+      pip-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+      pip-security:
+        applies-to: security-updates
+        patterns: ["*"]
