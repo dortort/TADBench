@@ -19,6 +19,8 @@ dependencies = [
     "click>=8.0",
     "tqdm>=4.60",
     "numpy<2",
+    # pyarrow 26 (pulled in by datasets) requires numpy>=2
+    "pyarrow<26",
     "pandas",
     "h5py",
 ]
