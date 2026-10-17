@@ -379,7 +379,12 @@ class BenchmarkRunner:
             benchmark_mode=benchmark_mode,
         )
 
-    def run_matrix(self, config_path: str | Path, benchmark_mode: str = "full") -> pd.DataFrame:
+    def run_matrix(
+        self,
+        config_path: str | Path,
+        benchmark_mode: str = "full",
+        threat_bank_path: Optional[str | Path] = None,
+    ) -> pd.DataFrame:
         """Run the full benchmark matrix defined by a JSON config file.
 
         The config schema matches ``matrix_config.json`` in the project root.
@@ -393,6 +398,10 @@ class BenchmarkRunner:
             Path to the matrix configuration JSON file.
         benchmark_mode:
             Efficiency profiling mode forwarded to :meth:`run_single`.
+        threat_bank_path:
+            Threat-bank JSONL forwarded to :meth:`run_single`.  Without it,
+            ``threat_prototype`` and ``cascade`` fit on the malicious test
+            samples, which leaks the test set into their prototype index.
 
         Returns
         -------
@@ -449,6 +458,7 @@ class BenchmarkRunner:
                                 dataset_path=dataset_path,
                                 detector_config=variant,
                                 target_fpr=target_fprs[0] if target_fprs else 0.005,
+                                threat_bank_path=threat_bank_path,
                                 benchmark_mode=benchmark_mode,
                             )
                         except Exception as exc:  # noqa: BLE001

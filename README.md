@@ -241,6 +241,7 @@ aggregated into a single CSV.
 --embedder [small|medium|large]   Override embedder for all runs.
 --dry-run                         Print planned runs without executing.
 --mode [full|fast]                Benchmark mode (default: full).
+--threat-bank PATH                Override default threat bank path.
 ```
 
 `full` preserves the existing exhaustive matrix profiling behavior, including repeated
