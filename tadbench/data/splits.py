@@ -372,8 +372,8 @@ def build_splits(
 ) -> None:
     """Run all splitting steps.
 
-    1. Build threat bank from train splits.
-    2. Apply per-dataset split logic.
+    1. Apply per-dataset split logic.
+    2. Build threat bank from train splits.
     3. Build length-binned test subsets.
     4. Build drift holdout files.
     5. Build combined benchmark sets.
@@ -388,17 +388,19 @@ def build_splits(
     out.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)
-    print("[splits] Step 1: Threat bank")
-    print("=" * 60)
-    build_threat_bank(out, sources=threat_bank_sources)
-
-    print("=" * 60)
-    print("[splits] Step 2: Dataset-specific splits")
+    print("[splits] Step 1: Dataset-specific splits")
     print("=" * 60)
     _split_promptshield(out)
     _split_deepset(out)
     _split_spml(out)
     _split_synthetic(out)
+
+    # Must follow the splits: before them, spml_train/deepset_train still
+    # hold the rows that become val/test, which would leak into the bank.
+    print("=" * 60)
+    print("[splits] Step 2: Threat bank")
+    print("=" * 60)
+    build_threat_bank(out, sources=threat_bank_sources)
 
     print("=" * 60)
     print("[splits] Step 3: Length-binned subsets")
