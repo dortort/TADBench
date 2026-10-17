@@ -336,14 +336,55 @@ class TestMatrixCommand:
             ]
         )
 
+        bank_path = tmp_path / "threat_bank.jsonl"
+        bank_path.write_text("{}\n")
+
         with patch("tadbench.runner.BenchmarkRunner", return_value=mock_runner):
             result = runner.invoke(
                 cli,
-                ["matrix", "--config", str(config_path), "--mode", "fast"],
+                [
+                    "matrix",
+                    "--config", str(config_path),
+                    "--mode", "fast",
+                    "--threat-bank", str(bank_path),
+                ],
             )
 
         assert result.exit_code == 0, f"output: {result.output}\nexc: {result.exception}"
-        mock_runner.run_matrix.assert_called_once_with(str(config_path), benchmark_mode="fast")
+        mock_runner.run_matrix.assert_called_once_with(
+            str(config_path),
+            benchmark_mode="fast",
+            threat_bank_path=str(bank_path),
+        )
+
+    def test_matrix_missing_threat_bank_exits_nonzero(self, tmp_path):
+        from click.testing import CliRunner as CR
+
+        runner = CR()
+        config_path = tmp_path / "matrix.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "embedders": ["small"],
+                    "datasets": ["data/processed/benchmark_description_combined.jsonl"],
+                    "techniques": [{"name": "threat_prototype", "variants": [{}]}],
+                }
+            )
+        )
+
+        with patch("tadbench.runner.BenchmarkRunner") as mock_runner_cls:
+            result = runner.invoke(
+                cli,
+                [
+                    "matrix",
+                    "--config", str(config_path),
+                    "--threat-bank", str(tmp_path / "missing.jsonl"),
+                ],
+            )
+
+        assert result.exit_code != 0
+        assert "Threat bank not found" in result.output
+        mock_runner_cls.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

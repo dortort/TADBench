@@ -280,3 +280,32 @@ class TestRunMatrix:
         assert set(df["embedder"]) == {"small", "medium"}
         assert len(df) == 2
         assert set(df["benchmark_mode"]) == {"fast"}
+
+    def test_run_matrix_forwards_threat_bank(self, mock_embedder, tmp_path):
+        dataset_path = _make_sample_file(tmp_path, n_benign=2, n_malicious=2)
+        bank_path = tmp_path / "threat_bank.jsonl"
+        config_path = tmp_path / "matrix.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "embedders": ["small"],
+                    "datasets": [str(dataset_path)],
+                    "techniques": [
+                        {"name": "threat_prototype", "variants": [{"top_k": 1}]},
+                        {"name": "cascade", "variants": [{}]},
+                    ],
+                    "target_fprs": [0.001],
+                    "attack_type_breakdown": False,
+                }
+            )
+        )
+
+        with patch("tadbench.runner.SentenceTransformerEmbedder", return_value=mock_embedder):
+            runner = BenchmarkRunner(embedder_tier="small", cache=False, results_dir=str(tmp_path))
+
+        with patch.object(BenchmarkRunner, "run_single") as mock_run_single:
+            runner.run_matrix(config_path, threat_bank_path=bank_path)
+
+        assert mock_run_single.call_count == 2
+        for call in mock_run_single.call_args_list:
+            assert call.kwargs["threat_bank_path"] == bank_path

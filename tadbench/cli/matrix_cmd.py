@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from tadbench.config import RESULTS_DIR
+from tadbench.config import PROCESSED_DIR, RESULTS_DIR
 
 
 @click.command("matrix")
@@ -42,12 +42,18 @@ from tadbench.config import RESULTS_DIR
     type=click.Choice(["full", "fast"]),
     help="Benchmark execution mode. 'full' preserves exhaustive profiling; 'fast' uses sampled efficiency estimates.",
 )
+@click.option(
+    "--threat-bank",
+    default=None,
+    help="Path to threat bank JSONL (default: data/processed/threat_bank.jsonl).",
+)
 def matrix(
     config: str,
     output: str | None,
     embedder: str | None,
     dry_run: bool,
     benchmark_mode: str,
+    threat_bank: str | None,
 ) -> None:
     """Run the full benchmark matrix as defined in CONFIG.
 
@@ -71,6 +77,10 @@ def matrix(
     out_path = Path(output) if output is not None else RESULTS_DIR / "matrix_results.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    bank_path = (
+        Path(threat_bank) if threat_bank is not None else PROCESSED_DIR / "threat_bank.jsonl"
+    )
+
     # Apply embedder override
     if embedder is not None:
         matrix_cfg["embedders"] = [embedder]
@@ -85,6 +95,7 @@ def matrix(
     click.echo(f"[matrix] Techniques: {[t['name'] for t in techniques]}")
     click.echo(f"[matrix] Output:     {out_path}")
     click.echo(f"[matrix] Mode:       {benchmark_mode}")
+    click.echo(f"[matrix] Threat bank: {bank_path}")
 
     total_runs = sum(
         len(embedders) * len(t.get("variants", [{}])) * len(datasets)
@@ -104,6 +115,11 @@ def matrix(
                         )
         return
 
+    if not bank_path.exists():
+        raise click.ClickException(
+            f"Threat bank not found: {bank_path}. Run 'tadbench prepare' or pass --threat-bank."
+        )
+
     from tadbench.runner import BenchmarkRunner
 
     runner = BenchmarkRunner(
@@ -111,7 +127,11 @@ def matrix(
         cache=True,
         results_dir=str(out_path.parent),
     )
-    df = runner.run_matrix(str(config_path), benchmark_mode=benchmark_mode)
+    df = runner.run_matrix(
+        str(config_path),
+        benchmark_mode=benchmark_mode,
+        threat_bank_path=str(bank_path),
+    )
 
     if df is None or (hasattr(df, "__len__") and len(df) == 0):
         raise click.ClickException("Matrix run produced no results.")
