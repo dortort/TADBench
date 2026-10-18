@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -354,13 +355,21 @@ class BenchmarkRunner:
         # Profile efficiency
         profiling_cfg = resolve_matrix_profiling_mode(benchmark_mode)
         profiler = LatencyProfiler()
-        efficiency = profiler.profile_detector(
-            detector,
-            test_samples,
-            n_runs=profiling_cfg.latency_runs,
-            max_latency_samples=profiling_cfg.max_latency_samples,
-            max_throughput_samples=profiling_cfg.max_throughput_samples,
+        # Every test sample was just embedded during scoring, so profiling
+        # through the cache would time dictionary lookups, not embedding.
+        cache_bypass = (
+            self._embedder.bypass()
+            if isinstance(self._embedder, EmbeddingCache)
+            else nullcontext()
         )
+        with cache_bypass:
+            efficiency = profiler.profile_detector(
+                detector,
+                test_samples,
+                n_runs=profiling_cfg.latency_runs,
+                max_latency_samples=profiling_cfg.max_latency_samples,
+                max_throughput_samples=profiling_cfg.max_throughput_samples,
+            )
 
         return BenchmarkResult(
             detector_name=detector.name,

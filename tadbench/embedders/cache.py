@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -62,6 +64,8 @@ class EmbeddingCache(EmbedderProtocol):
         # Count of new embeddings added since last flush
         self._new_since_save: int = 0
 
+        self._bypassed: bool = False
+
         # Load any existing cache from disk
         self._load()
 
@@ -74,6 +78,9 @@ class EmbeddingCache(EmbedderProtocol):
 
         Cache misses are batched and forwarded to the wrapped embedder.
         """
+        if self._bypassed:
+            return np.asarray(self._embedder.encode(texts), dtype=np.float32)
+
         keys = [_cache_key(self._embedder.model_name, t) for t in texts]
         self._total += len(texts)
 
@@ -122,6 +129,25 @@ class EmbeddingCache(EmbedderProtocol):
     # ------------------------------------------------------------------
     # Cache management
     # ------------------------------------------------------------------
+
+    @property
+    def bypassed(self) -> bool:
+        """Whether :meth:`encode` is currently skipping the cache."""
+        return self._bypassed
+
+    @contextmanager
+    def bypass(self) -> Iterator[None]:
+        """Send every ``encode`` call to the wrapped embedder within the block.
+
+        The store and hit-rate counters are neither read nor updated, so
+        latency measured inside the block reflects real embedding cost.
+        """
+        previous = self._bypassed
+        self._bypassed = True
+        try:
+            yield
+        finally:
+            self._bypassed = previous
 
     @property
     def hit_rate(self) -> float:

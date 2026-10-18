@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
@@ -125,3 +127,41 @@ class TestEmbeddingCachePersistence:
         np.testing.assert_array_almost_equal(result, expected, decimal=5)
         # All should be hits since loaded from disk
         assert cache2.hit_rate == 1.0
+
+
+class TestEmbeddingCacheBypass:
+    def test_bypass_calls_wrapped_embedder_every_time(self, mock_embedder, tmp_path):
+        cache = EmbeddingCache(mock_embedder, cache_dir=str(tmp_path / "cache"))
+        cache.encode(["warm"])
+
+        with patch.object(mock_embedder, "encode", wraps=mock_embedder.encode) as spy:
+            with cache.bypass():
+                first = cache.encode(["warm"])
+                second = cache.encode(["warm"])
+
+        assert spy.call_count == 2
+        np.testing.assert_array_equal(first, second)
+        assert first.dtype == np.float32
+
+    def test_bypass_leaves_store_and_stats_untouched(self, mock_embedder, tmp_path):
+        cache = EmbeddingCache(mock_embedder, cache_dir=str(tmp_path / "cache"))
+        cache.encode(["warm"])
+        stored = dict(cache._store)
+        hit_rate = cache.hit_rate
+
+        with cache.bypass():
+            cache.encode(["warm", "cold"])
+
+        assert cache._store.keys() == stored.keys()
+        assert cache.hit_rate == hit_rate
+
+    def test_bypass_restores_caching_on_exception(self, mock_embedder, tmp_path):
+        cache = EmbeddingCache(mock_embedder, cache_dir=str(tmp_path / "cache"))
+
+        with pytest.raises(RuntimeError):
+            with cache.bypass():
+                raise RuntimeError("boom")
+
+        cache.encode(["after"])
+        cache.encode(["after"])
+        assert cache.hit_rate == 0.5
