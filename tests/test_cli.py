@@ -355,7 +355,45 @@ class TestMatrixCommand:
             str(config_path),
             benchmark_mode="fast",
             threat_bank_path=str(bank_path),
+            embedders=["small"],
         )
+
+    def test_matrix_embedder_override_reaches_runner(self, tmp_path):
+        from click.testing import CliRunner as CR
+        import pandas as pd
+
+        runner = CR()
+        config_path = tmp_path / "matrix.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "embedders": ["small", "medium", "large"],
+                    "datasets": ["data/processed/benchmark_description_combined.jsonl"],
+                    "techniques": [{"name": "threat_prototype", "variants": [{}]}],
+                }
+            )
+        )
+        bank_path = tmp_path / "threat_bank.jsonl"
+        bank_path.write_text("{}\n")
+
+        mock_runner = MagicMock()
+        mock_runner.run_matrix.return_value = pd.DataFrame([{"embedder": "large"}])
+
+        with patch("tadbench.runner.BenchmarkRunner", return_value=mock_runner) as mock_cls:
+            result = runner.invoke(
+                cli,
+                [
+                    "matrix",
+                    "--config", str(config_path),
+                    "--embedder", "large",
+                    "--threat-bank", str(bank_path),
+                ],
+            )
+
+        assert result.exit_code == 0, f"output: {result.output}\nexc: {result.exception}"
+        assert "Total runs: 1" in result.output
+        assert mock_cls.call_args.kwargs["embedder_tier"] == "large"
+        assert mock_runner.run_matrix.call_args.kwargs["embedders"] == ["large"]
 
     def test_matrix_missing_threat_bank_exits_nonzero(self, tmp_path):
         from click.testing import CliRunner as CR
