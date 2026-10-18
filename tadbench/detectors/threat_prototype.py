@@ -92,7 +92,9 @@ class ThreatPrototypeDetector(BaseDetector):
         if self.index_type == "flat":
             index = faiss.IndexFlatIP(dim)
         elif self.index_type == "hnsw":
-            index = faiss.IndexHNSWFlat(dim, 32)  # M=32
+            # The default metric is L2 distance (lower = closer); _query_index
+            # treats results as similarities, so inner product is required.
+            index = faiss.IndexHNSWFlat(dim, 32, faiss.METRIC_INNER_PRODUCT)  # M=32
         elif self.index_type == "ivf":
             nlist = min(100, max(1, n // 10))
             quantizer = faiss.IndexFlatIP(dim)
