@@ -146,6 +146,32 @@ class TestRunSingle:
         found = required & set(result_dict.keys())
         assert len(found) > 0, f"Expected at least one of {required} in result, got: {set(result_dict.keys())}"
 
+    def test_run_single_profiles_with_cache_bypassed(self, mock_embedder, tmp_path):
+        from tadbench.evaluation.efficiency import LatencyProfiler
+
+        dataset_path = _make_sample_file(tmp_path, n_benign=5, n_malicious=5)
+
+        with patch("tadbench.runner.SentenceTransformerEmbedder", return_value=mock_embedder), \
+             patch("tadbench.runner.CACHE_DIR", tmp_path / "cache"):
+            runner = BenchmarkRunner(embedder_tier="small", cache=True, results_dir=str(tmp_path))
+
+        bypass_during_profiling: list[bool] = []
+        real_profile = LatencyProfiler.profile_detector
+
+        def _recording_profile(self, *args, **kwargs):
+            bypass_during_profiling.append(runner._embedder.bypassed)
+            return real_profile(self, *args, **kwargs)
+
+        with patch.object(LatencyProfiler, "profile_detector", _recording_profile):
+            runner.run_single(
+                technique="threat_prototype",
+                dataset_path=str(dataset_path),
+                benchmark_mode="fast",
+            )
+
+        assert bypass_during_profiling == [True]
+        assert runner._embedder.bypassed is False
+
 
 # ---------------------------------------------------------------------------
 # Compatibility check
