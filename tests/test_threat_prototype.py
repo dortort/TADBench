@@ -137,6 +137,18 @@ class TestThreatPrototypeIndexTypes:
         scores = det.score(sample_data)
         assert len(scores) == len(sample_data)
 
+    def test_hnsw_scores_match_flat_similarities(self, mock_embedder, sample_data):
+        malicious = [s for s in sample_data if s.label == "malicious"]
+        scores = {}
+        for index_type in ("flat", "hnsw"):
+            det = ThreatPrototypeDetector(
+                mock_embedder, index_type=index_type, top_k=5, aggregation="mean"
+            )
+            det.fit(malicious)
+            scores[index_type] = det.score(sample_data)
+
+        np.testing.assert_allclose(scores["hnsw"], scores["flat"], atol=1e-5)
+
     def test_invalid_index_type_raises(self, mock_embedder, sample_data):
         det = ThreatPrototypeDetector(mock_embedder, index_type="bad_type")
         malicious = [s for s in sample_data if s.label == "malicious"]
