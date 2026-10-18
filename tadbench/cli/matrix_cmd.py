@@ -131,6 +131,7 @@ def matrix(
         str(config_path),
         benchmark_mode=benchmark_mode,
         threat_bank_path=str(bank_path),
+        embedders=embedders,
     )
 
     if df is None or (hasattr(df, "__len__") and len(df) == 0):

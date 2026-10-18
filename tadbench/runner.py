@@ -384,6 +384,7 @@ class BenchmarkRunner:
         config_path: str | Path,
         benchmark_mode: str = "full",
         threat_bank_path: Optional[str | Path] = None,
+        embedders: Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """Run the full benchmark matrix defined by a JSON config file.
 
@@ -402,6 +403,8 @@ class BenchmarkRunner:
             Threat-bank JSONL forwarded to :meth:`run_single`.  Without it,
             ``threat_prototype`` and ``cascade`` fit on the malicious test
             samples, which leaks the test set into their prototype index.
+        embedders:
+            Embedder tiers to run, overriding the config's ``embedders``.
 
         Returns
         -------
@@ -416,7 +419,8 @@ class BenchmarkRunner:
             config = json.load(fh)
 
         rows: list[dict] = []
-        embedders: list[str] = config.get("embedders", [self.embedder_tier])
+        if embedders is None:
+            embedders = config.get("embedders", [self.embedder_tier])
         target_fprs: list[float] = config.get("target_fprs", [0.001, 0.005, 0.01])
         n_efficiency_runs: int = config.get("n_efficiency_runs", 3)
 
