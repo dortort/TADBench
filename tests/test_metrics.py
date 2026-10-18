@@ -181,6 +181,34 @@ class TestComputePerGroupMetrics:
             assert "n_samples" in metrics
             assert "n_positive" in metrics
 
+    def test_all_positive_group_is_compared_against_all_negatives(self):
+        y_true = np.array([0, 0, 1, 1, 1, 1])
+        y_score = np.array([0.1, 0.2, 0.9, 0.8, 0.15, 0.05])
+        groups = ["none", "none", "A", "A", "B", "B"]
+        result = compute_per_group_metrics(y_true, y_score, groups)
+        assert result["A"]["auroc"] == pytest.approx(1.0)
+        assert result["B"]["auroc"] == pytest.approx(0.25)
+        assert result["A"]["n_samples"] == 2
+        assert result["A"]["n_positive"] == 2
+        assert result["A"]["tpr_at_fpr"][0.01] == pytest.approx(1.0)
+
+    def test_group_without_positives_reports_nan(self):
+        y_true = np.array([0, 0, 1, 1])
+        y_score = np.array([0.1, 0.2, 0.9, 0.8])
+        groups = ["none", "none", "A", "A"]
+        result = compute_per_group_metrics(y_true, y_score, groups)
+        assert np.isnan(result["none"]["auroc"])
+        assert np.isnan(result["none"]["auprc"])
+        assert all(np.isnan(v) for v in result["none"]["tpr_at_fpr"].values())
+
+    def test_mixed_label_group_uses_only_its_own_samples(self):
+        y_true = np.array([0, 1, 0, 1])
+        y_score = np.array([0.9, 0.1, 0.1, 0.9])
+        groups = ["short", "short", "long", "long"]
+        result = compute_per_group_metrics(y_true, y_score, groups)
+        assert result["short"]["auroc"] == pytest.approx(0.0)
+        assert result["long"]["auroc"] == pytest.approx(1.0)
+
     def test_mismatched_lengths_raise(self):
         with pytest.raises(ValueError, match="same length"):
             compute_per_group_metrics(

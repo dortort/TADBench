@@ -187,6 +187,11 @@ def compute_per_group_metrics(
 
     Useful for per-attack-type and per-length-bin breakdowns.
 
+    A group containing both classes (e.g. a length bin) is evaluated on its
+    own samples.  A group containing only positives (e.g. one attack type) is
+    evaluated against every negative sample, since ranking metrics need both
+    classes.  A group with no positives reports NaN metrics.
+
     Args:
         y_true: Binary ground-truth labels for all samples.
         y_score: Continuous anomaly scores for all samples.
@@ -207,16 +212,32 @@ def compute_per_group_metrics(
         )
 
     unique_groups = np.unique(groups_arr)
+    negative_mask = y_true == 0
     result: dict[str, dict] = {}
 
     for group in unique_groups:
         mask = groups_arr == group
-        gt = y_true[mask]
-        sc = y_score[mask]
+        n_samples = int(mask.sum())
+        n_positive = int(y_true[mask].sum())
+
+        if n_positive == 0:
+            undefined_tpr = compute_tpr_at_fpr(y_true[mask], y_score[mask])
+            result[str(group)] = {
+                "n_samples": n_samples,
+                "n_positive": 0,
+                "auroc": float("nan"),
+                "auprc": float("nan"),
+                "tpr_at_fpr": dict.fromkeys(undefined_tpr, float("nan")),
+            }
+            continue
+
+        eval_mask = mask if n_positive < n_samples else mask | negative_mask
+        gt = y_true[eval_mask]
+        sc = y_score[eval_mask]
 
         result[str(group)] = {
-            "n_samples": int(mask.sum()),
-            "n_positive": int(gt.sum()),
+            "n_samples": n_samples,
+            "n_positive": n_positive,
             "auroc": compute_auroc(gt, sc),
             "auprc": compute_auprc(gt, sc),
             "tpr_at_fpr": compute_tpr_at_fpr(gt, sc),
