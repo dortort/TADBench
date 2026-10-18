@@ -161,6 +161,13 @@ tadbench matrix \
 
 ---
 
+## Published Results
+
+- [2026-10-18 full matrix](published/2026-10-18-matrix-full/README.md) — all detector
+  variants in full mode on AWS `c7i.4xlarge`, with setup, caveats, and raw CSV.
+
+---
+
 ## CLI Commands
 
 All commands are available via the `tadbench` entry point. Run `tadbench --help` or
