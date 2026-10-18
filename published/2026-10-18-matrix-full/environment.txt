@@ -1,0 +1,12 @@
+git_sha: 20b8c84e6117419da96ac504f19914d964250e01
+instance_type: c7i.4xlarge
+kernel: 7.0.0-1014-aws
+python: Python 3.11.17
+CPU(s):                                  16
+Model name:                              Intel(R) Xeon(R) Platinum 8488C
+Thread(s) per core:                      2
+Core(s) per socket:                      8
+               total        used        free      shared  buff/cache   available
+Mem:              30           1          23           0           6          29
+matrix_small: ok in 4289s
+matrix_medium: ok in 8934s
