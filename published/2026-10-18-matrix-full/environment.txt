@@ -10,3 +10,4 @@ Core(s) per socket:                      8
 Mem:              30           1          23           0           6          29
 matrix_small: ok in 4289s
 matrix_medium: ok in 8934s
+matrix_large: ok in 24964s
