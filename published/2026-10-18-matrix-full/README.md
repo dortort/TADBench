@@ -8,7 +8,7 @@ on `data/processed/benchmark_description_combined.jsonl` (3,451 samples: 820 ben
 
 | | |
 |---|---|
-| Code | `20b8c84e6117419da96ac504f19914d964250e01` |
+| Code | `20b8c84e6117419da96ac504f19914d964250e01`, tagged [`results/2026-10-18-matrix-full`](https://github.com/dortort/TADBench/releases/tag/results/2026-10-18-matrix-full) |
 | Host | AWS `c7i.4xlarge` (Intel Xeon Platinum 8488C, 8 cores / 16 threads, 32 GB), eu-north-1, Ubuntu 24.04 |
 | Python | 3.11, PyTorch 2.14.1 (default CUDA wheel; the host has no GPU and the runner uses `device="cpu"`); exact packages in `requirements-frozen.txt` |
 | Data | Fresh `tadbench download` + `tadbench prepare` on the host |
@@ -129,6 +129,7 @@ Each attack type is scored against all 820 benign samples.
 ## Reproduce
 
 ```bash
+git checkout results/2026-10-18-matrix-full
 pip install -e .
 tadbench download && tadbench prepare
 tadbench matrix --config matrix_config.json --mode full --embedder small --output results/matrix_small.csv
