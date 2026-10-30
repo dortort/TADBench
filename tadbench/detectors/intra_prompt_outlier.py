@@ -216,18 +216,21 @@ def _ecod_scores(embeddings: np.ndarray) -> np.ndarray:
     if n == 0:
         return np.array([], dtype=float)
 
-    ranks_low = _column_ranks(embeddings)
-    ranks_high = n - ranks_low + 1
+    # Empirical CDFs must give ties the same mass. Sum evidence over
+    # dimensions before aggregating over chunks; taking a maximum twice
+    # makes the prompt score log(n + 1), independent of its embeddings.
+    from scipy.stats import rankdata
 
-    tail_low = -np.log(ranks_low / (n + 1.0))
-    tail_high = -np.log(ranks_high / (n + 1.0))
-    return np.max(np.maximum(tail_low, tail_high), axis=1).astype(float)
-
-
-def _column_ranks(values: np.ndarray) -> np.ndarray:
-    """Return 1-based ascending ranks per column."""
-    order = np.argsort(values, axis=0, kind="mergesort")
-    ranks = np.empty_like(order, dtype=float)
-    row_indices = np.arange(1, values.shape[0] + 1, dtype=float)[:, None]
-    np.put_along_axis(ranks, order, row_indices, axis=0)
-    return ranks
+    cdf_left = rankdata(embeddings, method="max", axis=0) / n
+    cdf_right = rankdata(-embeddings, method="max", axis=0) / n
+    centered = embeddings - embeddings.mean(axis=0)
+    variance = np.mean(centered ** 2, axis=0)
+    marginal_skew = np.divide(
+        np.mean(centered ** 3, axis=0), variance ** 1.5,
+        out=np.zeros(embeddings.shape[1]), where=variance > 0,
+    )
+    left = -np.log(cdf_left)
+    right = -np.log(cdf_right)
+    skew_tail = np.where(marginal_skew < 0, left, right)
+    return np.maximum(np.maximum(left.sum(axis=1), right.sum(axis=1)),
+                      skew_tail.sum(axis=1)).astype(float)
