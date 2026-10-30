@@ -20,6 +20,7 @@ Use :func:`get_chunker` to obtain a chunker by name::
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import Callable
 
 logger = logging.getLogger(__name__)
@@ -28,11 +29,16 @@ logger = logging.getLogger(__name__)
 # NLTK punkt data bootstrap (downloaded once, silently)
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=1)
 def _ensure_punkt() -> None:
     """Download NLTK punkt_tab data on first use if not already present."""
     import nltk  # imported lazily so nltk is not required at module import time
 
-    nltk.download("punkt_tab", quiet=True)
+    try:
+        nltk.data.find("tokenizers/punkt_tab/english/")
+    except LookupError:
+        if not nltk.download("punkt_tab", quiet=True):
+            raise RuntimeError("Could not install NLTK punkt_tab tokenizer data")
 
 
 # ---------------------------------------------------------------------------
