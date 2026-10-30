@@ -152,7 +152,8 @@ def save_thresholds(
     }
 
     with path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2)
+        from tadbench.utils.io import json_safe
+        json.dump(json_safe(payload), fh, indent=2, allow_nan=False)
 
     logger.info("save_thresholds: wrote %d thresholds to %s", len(thresholds), path)
 
@@ -187,5 +188,10 @@ def load_thresholds(path: Union[str, Path]) -> dict:
             "File may not have been created by save_thresholds()."
         )
 
+    payload["thresholds"] = {key: float(value) for key, value in payload["thresholds"].items()}
+    for config in payload.get("detector_configs", {}).values():
+        for key in list(config):
+            if key.endswith("_threshold"):
+                config[key] = float(config[key])
     logger.debug("load_thresholds: loaded %d thresholds from %s", len(payload["thresholds"]), path)
     return payload

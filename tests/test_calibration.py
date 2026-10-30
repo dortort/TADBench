@@ -175,3 +175,17 @@ class TestSaveLoadThresholds:
         path = tmp_path / "nested" / "dir" / "thresholds.json"
         save_thresholds({"d": 0.5}, path, target_fpr=0.01, dataset_name="test")
         assert path.exists()
+
+
+def test_infinite_gate_thresholds_round_trip_as_standard_json(tmp_path):
+    from tadbench.evaluation.calibration import save_thresholds, load_thresholds
+    path = tmp_path / "thresholds.json"
+    save_thresholds({"cascade": .5, "threat_prototype": float("inf")}, path, .005, "val",
+                    detector_configs={"cascade": {"stage1_threshold": float("inf")}})
+    def invalid_constant(value):
+        raise AssertionError(f"Nonstandard JSON constant: {value}")
+    import json
+    json.loads(path.read_text(), parse_constant=invalid_constant)
+    restored = load_thresholds(path)
+    assert restored["thresholds"]["threat_prototype"] == float("inf")
+    assert restored["detector_configs"]["cascade"]["stage1_threshold"] == float("inf")

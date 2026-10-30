@@ -101,8 +101,10 @@ class BenchmarkResult:
 
     def to_dict(self) -> dict:
         """Serialise to a plain dict suitable for JSON output."""
+        from tadbench.utils.io import json_safe
+
         eff = self.efficiency
-        return {
+        payload = {
             "detector_name": self.detector_name,
             "embedder": self.embedder,
             "dataset_slice": self.dataset_slice,
@@ -137,6 +139,7 @@ class BenchmarkResult:
             },
             "cascade_metrics": self.cascade_metrics,
         }
+        return json_safe(payload)
 
     def to_csv_row(self) -> dict:
         """Return a flat dict suitable for constructing a pandas DataFrame row.

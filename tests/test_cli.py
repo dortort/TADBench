@@ -498,7 +498,7 @@ def test_run_writes_auditable_threshold_metrics(tmp_path, mock_embedder):
             "--dataset", str(dataset), "--embedder", "small", "--mode", "fast",
             "--threshold-config", str(thresholds), "--output", str(output)])
     assert result.exit_code == 0, result.output
-    report = json.loads(output.read_text())
+    report = json.loads(output.read_text(), parse_constant=lambda value: pytest.fail(value))
     assert report["per_attack_recall"] == {"direct_injection": 0.0}
     assert report["embedding_calls"] == 0
     assert report["total_tokens"] == 0
