@@ -140,7 +140,7 @@ def compute_calibration_error(
         n_bins: Number of equal-width bins.
 
     Returns:
-        ECE in [0, 1]. Returns 0.0 for empty or single-class inputs.
+        ECE in [0, 1]. Returns 0.0 for empty inputs.
     """
     y_true = np.asarray(y_true, dtype=int)
     y_score = np.asarray(y_score, dtype=float)
@@ -152,14 +152,11 @@ def compute_calibration_error(
     if len(y_true) == 0:
         return 0.0
 
-    # Normalize scores to [0, 1] if they are outside that range.
-    score_min = y_score.min()
-    score_max = y_score.max()
-    if score_max > score_min:
-        y_score_norm = (y_score - score_min) / (score_max - score_min)
-    else:
-        # All scores identical — perfect calibration trivially.
-        return 0.0
+    if n_bins < 1:
+        raise ValueError("n_bins must be positive")
+    if not np.isfinite(y_score).all() or np.any((y_score < 0) | (y_score > 1)):
+        raise ValueError("ECE requires probabilities in [0, 1], not anomaly scores")
+    y_score_norm = y_score
 
     bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
     bin_indices = np.digitize(y_score_norm, bin_edges[1:-1])  # 0-indexed bins
@@ -252,6 +249,8 @@ def compute_all_metrics(
     groups: Optional[list[str]] = None,
     target_fprs: list[float] | None = None,
     n_calibration_bins: int = 10,
+    probability_scores: ndarray | None = None,
+    threshold: float | None = None,
 ) -> dict:
     """Compute all detection quality metrics in a single call.
 
@@ -286,9 +285,21 @@ def compute_all_metrics(
         "auprc": compute_auprc(y_true_arr, y_score_arr),
         "tpr_at_fpr": compute_tpr_at_fpr(y_true_arr, y_score_arr, target_fprs),
         "calibration_error": compute_calibration_error(
-            y_true_arr, y_score_arr, n_calibration_bins
-        ),
+            y_true_arr, probability_scores, n_calibration_bins
+        ) if probability_scores is not None else float("nan"),
     }
+
+    if threshold is not None:
+        metrics["operating_point"] = compute_operating_point(y_true_arr, y_score_arr, threshold)
+        if groups is not None:
+            group_arr = np.asarray(groups)
+            metrics["per_attack_recall"] = {
+                str(group): compute_operating_point(
+                    y_true_arr[group_arr == group], y_score_arr[group_arr == group], threshold
+                )["recall"]
+                for group in np.unique(group_arr)
+                if np.any(y_true_arr[group_arr == group] == 1)
+            }
 
     if groups is not None:
         metrics["per_group"] = compute_per_group_metrics(
@@ -296,3 +307,19 @@ def compute_all_metrics(
         )
 
     return metrics
+
+
+def compute_operating_point(y_true: ndarray, y_score: ndarray, threshold: float) -> dict:
+    """Evaluate one explicit threshold; never select it from test labels."""
+    labels = np.asarray(y_true, dtype=int)
+    scores = np.asarray(y_score, dtype=float)
+    valid = np.isfinite(scores)
+    labels, scores = labels[valid], scores[valid]
+    predicted = scores >= threshold
+    tp = int(np.sum(predicted & (labels == 1)))
+    fp = int(np.sum(predicted & (labels == 0)))
+    fn = int(np.sum(~predicted & (labels == 1)))
+    tn = int(np.sum(~predicted & (labels == 0)))
+    return {"threshold": threshold, "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+            "recall": tp / (tp + fn) if tp + fn else float("nan"),
+            "fpr": fp / (fp + tn) if fp + tn else float("nan")}

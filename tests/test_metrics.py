@@ -131,7 +131,7 @@ class TestComputeCalibrationError:
     def test_perfect_calibration_returns_zero(self):
         # If scores exactly match the positive rates, ECE = 0
         y_true = np.array([0, 0, 1, 1, 0, 1, 0, 1])
-        # All same score — after normalization, ECE = 0 (all scores identical path)
+        # Constant 0.5 correctly predicts the observed positive rate.
         y_score = np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
         ece = compute_calibration_error(y_true, y_score)
         assert ece == 0.0
@@ -249,3 +249,26 @@ class TestComputeAllMetrics:
         y_score = np.array([0.1] * 50 + [0.9] * 50)
         result = compute_all_metrics(y_true, y_score)
         assert result["auroc"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_ece_preserves_probability_scale_and_constant_errors():
+    assert compute_calibration_error(np.zeros(10), np.full(10, .9)) == pytest.approx(.9)
+    assert compute_calibration_error(np.array([0, 1]), np.array([.2, .8])) == pytest.approx(.2)
+    with pytest.raises(ValueError, match="probabilities"):
+        compute_calibration_error(np.array([0, 1]), np.array([-1., 2.]))
+
+
+def test_anomaly_metrics_do_not_claim_probability_calibration():
+    result = compute_all_metrics(np.array([0, 1]), np.array([2., 3.]))
+    assert np.isnan(result["calibration_error"])
+    result = compute_all_metrics(np.array([0, 1]), np.array([2., 3.]),
+                                 probability_scores=np.array([.2, .8]))
+    assert result["calibration_error"] == pytest.approx(.2)
+
+
+def test_attack_recall_uses_fixed_threshold():
+    result = compute_all_metrics(np.array([0, 0, 1, 1]), np.array([.1, .2, .6, .9]),
+                                 groups=["none", "none", "A", "A"], threshold=.8)
+    assert result["per_attack_recall"] == {"A": .5}
+    assert result["operating_point"]["fpr"] == 0
+    assert result["per_group"]["A"]["tpr_at_fpr"][.01] == 1
