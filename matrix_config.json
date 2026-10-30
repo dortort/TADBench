@@ -37,5 +37,9 @@
     "length_bins": true,
     "attack_type_breakdown": true,
     "target_fprs": [0.001, 0.005, 0.01],
-    "n_efficiency_runs": 3
+    "n_efficiency_runs": 3,
+    "validation_datasets": {
+        "data/processed/benchmark_description_combined.jsonl": "data/processed/benchmark_description_val_combined.jsonl"
+    },
+    "calibration_target_fpr": 0.005
 }
