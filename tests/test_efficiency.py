@@ -94,7 +94,7 @@ class TestLatencyProfiler:
         samples = _make_samples(5)
         profiler = LatencyProfiler()
         report = profiler.profile_detector(det, samples, n_runs=1)
-        assert report.peak_rss_mb >= 0.0
+        assert report.rss_mb >= 0.0
 
     def test_embedding_calls_per_sample_set(self, mock_embedder):
         det = _make_fitted_detector(mock_embedder)
@@ -162,7 +162,7 @@ class TestEfficiencyReportFields:
         assert hasattr(report, "p95_ms")
         assert hasattr(report, "p99_ms")
         assert hasattr(report, "throughput_rps")
-        assert hasattr(report, "peak_rss_mb")
+        assert hasattr(report, "rss_mb")
         assert hasattr(report, "cpu_utilization_pct")
         assert hasattr(report, "index_build_time_s")
         assert hasattr(report, "index_update_cost_s")
@@ -232,3 +232,38 @@ class TestMeasureScalingCurves:
         det.fit(threats)
         with pytest.raises(ValueError, match="Unknown scaling variable"):
             measure_scaling_curves(det, threats, "bad_variable", [0, 100])
+
+
+def test_profiler_counts_actual_body_and_description_work(mock_embedder, sample_with_descriptions):
+    from tadbench.detectors.intent_content import IntentContentDetector
+    detector = IntentContentDetector(mock_embedder)
+    samples = sample_with_descriptions[:2]
+    report = LatencyProfiler().profile_detector(detector, samples, n_runs=1)
+    assert report.embedding_calls_per_sample == 2
+    assert report.total_tokens_embedded == sum(
+        len(s.prompt_body.split()) + len(s.advertised_description.split()) for s in samples)
+    assert report.rss_mb > 0
+    assert report.token_count_method == "input_whitespace_words"
+    assert detector.embedder is mock_embedder
+
+
+def test_profiler_records_no_embeddings_when_ipsod_skips_short_prompts(mock_embedder):
+    from tadbench.detectors.intra_prompt_outlier import IntraPromptOutlierDetector
+    detector = IntraPromptOutlierDetector(mock_embedder)
+    report = LatencyProfiler().profile_detector(detector, [_make_sample("short")], n_runs=1)
+    assert report.embedding_calls_per_sample == 0
+    assert report.total_tokens_embedded == 0
+
+
+def test_profiler_bypasses_warm_cache(mock_embedder, tmp_path):
+    from tadbench.embedders.cache import EmbeddingCache
+    cache = EmbeddingCache(mock_embedder, cache_dir=str(tmp_path))
+    detector = _make_fitted_detector(mock_embedder)
+    detector.embedder = cache
+    samples = _make_samples(2)
+    detector.score(samples)
+    before = cache._total
+    report = LatencyProfiler().profile_detector(detector, samples, n_runs=1)
+    assert cache._total == before
+    assert not cache.bypassed
+    assert report.embedding_calls_per_sample == 1

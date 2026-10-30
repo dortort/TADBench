@@ -293,7 +293,7 @@ class TestRunMatrix:
                     p95_ms=1.0,
                     p99_ms=1.0,
                     throughput_rps=10.0,
-                    peak_rss_mb=0.0,
+                    rss_mb=0.0,
                     cpu_utilization_pct=0.0,
                 ),
                 target_fpr=target_fpr,

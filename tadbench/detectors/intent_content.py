@@ -44,6 +44,8 @@ class IntentContentDetector(BaseDetector):
         self.body_strategy = body_strategy
         self.cross_encoder_model_name = cross_encoder_model
 
+        self.cross_encoder_calls_total = 0
+        self.cross_encoder_input_words = 0
         self._cross_encoder = None  # lazy-loaded
         self._chunker = get_chunker("sentence")
 
@@ -140,6 +142,8 @@ class IntentContentDetector(BaseDetector):
 
             # CrossEncoder.predict returns raw logits; shape (3,) for NLI
             logits = self._cross_encoder.predict([pair])[0]
+            self.cross_encoder_calls_total += 1
+            self.cross_encoder_input_words += sum(len(text.split()) for text in pair)
             probs = sp.softmax(logits)
 
             # NLI label order for nli-deberta-v3-base: [contradiction, neutral, entailment]

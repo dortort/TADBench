@@ -99,6 +99,14 @@ class CascadeDetector(BaseDetector):
         # Weighted average based on typical filtering rates (rough estimate)
         return 1
 
+    @property
+    def cross_encoder_calls_total(self):
+        return self._stage3.cross_encoder_calls_total
+
+    @property
+    def cross_encoder_input_words(self):
+        return self._stage3.cross_encoder_input_words
+
     def fit(self, samples: list[BenchmarkSample]) -> None:
         """Delegate fit() to all three sub-detectors."""
         logger.info("Fitting stage 1 (ThreatPrototype)...")
