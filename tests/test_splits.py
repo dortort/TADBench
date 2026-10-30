@@ -104,3 +104,27 @@ class TestBuildSplitsThreatBank:
         assert held_out_ids, "fixture should produce held-out splits"
         assert bank_ids.isdisjoint(held_out_ids)
         assert bank_ids == train_malicious_ids
+
+
+def test_zero_test_fraction_preserves_all_rows():
+    from tadbench.data.splits import _stratified_split
+    records = [_record(str(i), "deepset", "", label=label)
+               for i, label in enumerate(["benign", "malicious"] * 10)]
+    train, val, test = _stratified_split(records, val_frac=.2, test_frac=0)
+    assert not test
+    assert len(train) + len(val) == len(records)
+    assert {r["id"] for r in train}.isdisjoint(r["id"] for r in val)
+
+
+def test_drift_holdouts_exclude_train_and_derived_files(tmp_path):
+    train = [_record(f"train-{i}", "promptshield", "", "malicious", "direct_injection")
+             for i in range(20)]
+    test = [_record(f"test-{i}", "promptshield", "", "malicious", "direct_injection")
+            for i in range(12)]
+    write_jsonl(train, tmp_path / "promptshield_train.jsonl")
+    write_jsonl(test, tmp_path / "promptshield_test.jsonl")
+    write_jsonl(train + test + test, tmp_path / "benchmark_combined.jsonl")
+    build_splits(tmp_path)
+    holdout = read_jsonl(tmp_path / "drift_holdout_direct_injection.jsonl")
+    assert {r["id"] for r in holdout} == {r["id"] for r in test}
+    assert len(holdout) == len(test)
