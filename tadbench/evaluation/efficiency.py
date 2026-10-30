@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from contextlib import contextmanager, ExitStack
 from typing import TYPE_CHECKING, Literal, Optional
 
 import numpy as np
@@ -53,7 +54,7 @@ class EfficiencyReport:
     p95_ms: float
     p99_ms: float
     throughput_rps: float
-    peak_rss_mb: float
+    rss_mb: float
     cpu_utilization_pct: float
     index_build_time_s: Optional[float] = None
     index_update_cost_s: Optional[float] = None
@@ -62,12 +63,28 @@ class EfficiencyReport:
     cross_encoder_calls_per_sample: float = 0.0
     latency_profile_samples: int = 0
     throughput_profile_samples: int = 0
+    token_count_method: str = "input_whitespace_words"
+    rss_measurement: str = "post_batch_process_rss"
 
 
 class LatencyProfiler:
     """Profile detector latency, throughput, and resource usage."""
 
-    def profile_detector(
+    def profile_detector(self, detector, samples, **kwargs) -> EfficiencyReport:
+        from tadbench.embedders.cache import EmbeddingCache
+
+        stages = [detector] + [getattr(detector, name) for name in ("_stage1", "_stage2", "_stage3")
+                               if hasattr(detector, name)]
+        with ExitStack() as stack:
+            seen = set()
+            for stage in stages:
+                embedder = getattr(stage, "embedder", None)
+                if isinstance(embedder, EmbeddingCache) and id(embedder) not in seen:
+                    seen.add(id(embedder))
+                    stack.enter_context(embedder.bypass())
+            return self._profile_detector(detector, samples, **kwargs)
+
+    def _profile_detector(
         self,
         detector: "BaseDetector",
         samples: list["BenchmarkSample"],
@@ -80,7 +97,7 @@ class LatencyProfiler:
         Measures:
         - Per-sample latency via ``score_single()`` (p50/p95/p99), repeated n_runs times.
         - Throughput via ``score()`` on the full batch.
-        - Peak RSS delta via psutil before/after the batch score call.
+        - Process RSS after the batch score call (includes loaded models and indexes).
         - CPU utilization via psutil during the batch score call.
 
         Args:
@@ -102,7 +119,7 @@ class LatencyProfiler:
                 p95_ms=0.0,
                 p99_ms=0.0,
                 throughput_rps=0.0,
-                peak_rss_mb=0.0,
+                rss_mb=0.0,
                 cpu_utilization_pct=0.0,
                 latency_profile_samples=0,
                 throughput_profile_samples=0,
@@ -131,38 +148,34 @@ class LatencyProfiler:
         p99 = float(np.percentile(latencies, 99))
 
         # --- Throughput and RSS delta via batch score() ---
-        rss_before = process.memory_info().rss
 
         # Prime CPU percent measurement (first call returns 0.0 for the interval).
         process.cpu_percent(interval=None)
 
         batch_t0 = time.perf_counter()
-        detector.score(throughput_samples)
+        with measure_embedding_work(detector) as work:
+            cross_calls_before = getattr(detector, "cross_encoder_calls_total", 0)
+            cross_words_before = getattr(detector, "cross_encoder_input_words", 0)
+            detector.score(throughput_samples)
         batch_elapsed = time.perf_counter() - batch_t0
 
         cpu_pct = process.cpu_percent(interval=None)
         rss_after = process.memory_info().rss
 
         throughput = len(throughput_samples) / batch_elapsed if batch_elapsed > 0 else 0.0
-        peak_rss_mb = max(0.0, (rss_after - rss_before) / (1024 * 1024))
+        rss_mb = rss_after / (1024 * 1024)
 
-        # --- Cost proxies ---
-        embedding_calls = float(getattr(detector, "embedding_calls_per_sample", 1))
-        cross_encoder_calls = float(
-            getattr(detector, "cross_encoder_calls_per_sample", 0)
-        )
-
-        # Approximate total tokens: sum of whitespace-token counts in prompt bodies.
-        total_tokens = sum(
-            len(s.prompt_body.split()) for s in samples
-        ) * int(embedding_calls)
+        n = len(throughput_samples)
+        embedding_calls = work.texts / n
+        cross_encoder_calls = (getattr(detector, "cross_encoder_calls_total", 0) - cross_calls_before) / n
+        total_tokens = work.words + getattr(detector, "cross_encoder_input_words", 0) - cross_words_before
 
         return EfficiencyReport(
             p50_ms=p50,
             p95_ms=p95,
             p99_ms=p99,
             throughput_rps=throughput,
-            peak_rss_mb=peak_rss_mb,
+            rss_mb=rss_mb,
             cpu_utilization_pct=float(cpu_pct),
             embedding_calls_per_sample=embedding_calls,
             total_tokens_embedded=total_tokens,
@@ -458,3 +471,50 @@ def _scaling_pair_length(
             "p95_ms": p95,
         })
     return results
+
+
+@dataclass
+class EmbeddingWork:
+    """Measured texts and input words submitted during the batch scoring pass."""
+    texts: int = 0
+    words: int = 0
+
+
+@contextmanager
+def measure_embedding_work(detector):
+    """Instrument the shared embedder and restore it even when scoring fails."""
+    from tadbench.embedders.protocol import EmbedderProtocol
+
+    work = EmbeddingWork()
+
+    class CountingEmbedder(EmbedderProtocol):
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+
+        def encode(self, texts):
+            result = self.wrapped.encode(texts)
+            work.texts += len(texts)
+            work.words += sum(len(text.split()) for text in texts)
+            return result
+
+        def encode_single(self, text):
+            return self.encode([text])[0]
+
+        @property
+        def dimension(self):
+            return self.wrapped.dimension
+
+        @property
+        def model_name(self):
+            return self.wrapped.model_name
+
+    stages = [detector] + [getattr(detector, name) for name in ("_stage1", "_stage2", "_stage3")
+                           if hasattr(detector, name)]
+    originals = [(stage, stage.embedder) for stage in stages if hasattr(stage, "embedder")]
+    try:
+        for stage, embedder in originals:
+            stage.embedder = CountingEmbedder(embedder)
+        yield work
+    finally:
+        for stage, embedder in originals:
+            stage.embedder = embedder

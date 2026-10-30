@@ -239,62 +239,16 @@ def run(
             _fit_detector(detector, tech, bank_path, raw)
 
             click.echo(f"[run] Scoring {len(samples):,} samples ...")
-            import time
-
-            t0 = time.perf_counter()
             y_score = detector.score(samples)
-            elapsed = time.perf_counter() - t0
-            throughput = len(samples) / elapsed if elapsed > 0 else 0.0
-
-            # Latency profiling uses a capped subset so CLI runs stay tractable.
-            max_latency_samples = profiling_cfg["max_latency_samples"]
-            profiling_samples = (
-                samples[:max_latency_samples]
-                if max_latency_samples is not None
-                else samples
+            from tadbench.evaluation.efficiency import LatencyProfiler
+            efficiency = LatencyProfiler().profile_detector(
+                detector, samples,
+                n_runs=int(profiling_cfg["latency_runs"] or 1),
+                max_latency_samples=profiling_cfg["max_latency_samples"],
+                max_throughput_samples=profiling_cfg["max_throughput_samples"],
             )
-            latencies_ms: list[float] = []
-            for _ in range(int(profiling_cfg["latency_runs"] or 1)):
-                for s in profiling_samples:
-                    t_start = time.perf_counter()
-                    detector.score_single(s)
-                    latencies_ms.append((time.perf_counter() - t_start) * 1000.0)
-
-            max_throughput_samples = profiling_cfg["max_throughput_samples"]
-            throughput_samples = (
-                samples[:max_throughput_samples]
-                if max_throughput_samples is not None
-                else samples
-            )
-            if len(throughput_samples) != len(samples):
-                throughput_t0 = time.perf_counter()
-                detector.score(throughput_samples)
-                throughput_elapsed = time.perf_counter() - throughput_t0
-                throughput = (
-                    len(throughput_samples) / throughput_elapsed
-                    if throughput_elapsed > 0
-                    else 0.0
-                )
-
-            latencies_ms_sorted = sorted(latencies_ms)
-            n_lat = len(latencies_ms_sorted)
-
-            def _percentile(arr: list[float], pct: float) -> float:
-                if not arr:
-                    return 0.0
-                idx = min(int(pct / 100.0 * len(arr)), len(arr) - 1)
-                return arr[idx]
-
-            p50 = _percentile(latencies_ms_sorted, 50)
-            p95 = _percentile(latencies_ms_sorted, 95)
-            p99 = _percentile(latencies_ms_sorted, 99)
-
-            # Memory
-            try:
-                import psutil
-                rss_mb = psutil.Process().memory_info().rss / (1024 * 1024)
-            except Exception:
-                rss_mb = 0.0
+            p50, p95, p99 = efficiency.p50_ms, efficiency.p95_ms, efficiency.p99_ms
+            throughput = efficiency.throughput_rps
 
             # Compute metrics
             metrics = compute_all_metrics(y_true, y_score, groups=groups)
@@ -328,14 +282,14 @@ def run(
                 "p95_ms": p95,
                 "p99_ms": p99,
                 "throughput_rps": throughput,
-                "rss_mb": rss_mb,
-                "embedding_calls": getattr(detector, "embedding_calls_per_sample", 1),
-                "total_tokens": sum(
-                    len(s.prompt_body.split()) + len(s.advertised_description.split())
-                    for s in samples
-                ),
-                "latency_profile_samples": len(profiling_samples),
-                "throughput_profile_samples": len(throughput_samples),
+                "rss_mb": efficiency.rss_mb,
+                "rss_measurement": efficiency.rss_measurement,
+                "embedding_calls": efficiency.embedding_calls_per_sample,
+                "total_tokens": efficiency.total_tokens_embedded,
+                "token_count_method": efficiency.token_count_method,
+                "cross_encoder_calls": efficiency.cross_encoder_calls_per_sample,
+                "latency_profile_samples": efficiency.latency_profile_samples,
+                "throughput_profile_samples": efficiency.throughput_profile_samples,
             }
 
             # Cascade-specific fields
