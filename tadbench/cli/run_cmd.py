@@ -337,7 +337,8 @@ def run(
         click.echo(f"\n[run] Combined CSV: {out_path}  ({len(all_results)} rows)")
     else:
         result = all_results[0]
-        out_path.write_text(json.dumps(result, indent=2, default=str))
+        from tadbench.utils.io import json_safe
+        out_path.write_text(json.dumps(json_safe(result), indent=2, allow_nan=False))
         click.echo(f"\n[run] Results JSON: {out_path}")
 
     # Final summary table

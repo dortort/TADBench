@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import math
 import subprocess
 from dataclasses import asdict
 from importlib.metadata import distributions
@@ -12,14 +11,7 @@ from uuid import uuid4
 import numpy as np
 
 
-def _json_safe(value):
-    if isinstance(value, dict):
-        return {str(k): _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(v) for v in value]
-    if isinstance(value, (float, np.floating)) and not math.isfinite(value):
-        return None if math.isnan(value) else str(float(value))
-    return value
+from tadbench.utils.io import json_safe as _json_safe
 
 
 def write_run_artifacts(output_dir, samples, scores, inputs, config, detector, metadata=None):

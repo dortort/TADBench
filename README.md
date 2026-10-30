@@ -284,7 +284,7 @@ Every `run` and `matrix` invocation reports the following metrics:
 - `calibration_error` — Expected Calibration Error (ECE) across 10 equal-width bins
   when explicit malicious-class probabilities are supplied to the metrics API.
   Detector anomaly scores are not probabilities, so CLI/runner ECE is unavailable
-  (NaN in memory, empty in CSV) rather than normalized on the test set.
+  (NaN in memory, null in JSON, empty in CSV) rather than normalized on the test set.
 - `per_attack_recall` — Per-attack-type recall at the validation-calibrated threshold
   (unavailable without validation, except for the cascade's explicit decision)
   (direct_injection, hidden_instruction, role_override, exfiltration, jailbreak,
