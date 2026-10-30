@@ -40,7 +40,12 @@ is immediately classified malicious without running IPSOD or ICCD. A sample that
 stage 1 but exceeds the stage-2 threshold skips ICCD. Only prompts that pass both gates
 reach the most expensive stage. This mirrors production deployment where cheap filters guard
 expensive ones. The benchmark records the average stage reached and the fraction of samples
-filtered at each gate.
+filtered at each gate. Scores are binary decisions: a stage-1 or stage-2 exit
+is malicious; stage 3 compares its score with `stage3_threshold` (default 0.5).
+Raw stage scores remain available in per-example metadata. ROC curves for this
+binary detector describe its fixed operating point, not a continuous ranking.
+`calibrate` allocates one third of the validation FPR budget to each gate and
+saves all three gate thresholds for `run --threshold-config`.
 
 ---
 
@@ -201,7 +206,7 @@ Embeds the threat bank and builds a FAISS index for TPS.
 
 ### `tadbench calibrate`
 
-Searches for the optimal detection threshold on a held-out validation set and writes a
+Searches for detection thresholds on a held-out validation set and writes a
 threshold JSON file under `thresholds/`.
 
 ```
@@ -276,16 +281,25 @@ Every `run` and `matrix` invocation reports the following metrics:
 - `auroc` — Area Under the ROC Curve.
 - `auprc` — Area Under the Precision-Recall Curve (average precision).
 - `tpr_at_fpr` — True Positive Rate at FPR targets of 0.1%, 0.5%, and 1.0%.
-- `calibration_error` — Expected Calibration Error (ECE) across 10 equal-width bins.
-- `per_attack_recall` — Per-attack-type recall at the calibrated threshold
+- `calibration_error` — Expected Calibration Error (ECE) across 10 equal-width bins
+  when explicit malicious-class probabilities are supplied to the metrics API.
+  Detector anomaly scores are not probabilities, so CLI/runner ECE is unavailable
+  (NaN in memory, empty in CSV) rather than normalized on the test set.
+- `per_attack_recall` — Per-attack-type recall at the validation-calibrated threshold
+  (unavailable without validation, except for the cascade's explicit decision)
   (direct_injection, hidden_instruction, role_override, exfiltration, jailbreak,
   indirect_injection, tool_misuse, tps_evasion, ipsod_evasion, iccd_evasion).
 
 **Efficiency**
 - `p50_ms`, `p95_ms`, `p99_ms` — Latency percentiles measured per sample.
 - `throughput_rps` — Samples scored per second (batch).
-- `rss_mb` — Resident set size in MB after scoring.
-- `embedding_calls` — Embedding calls per sample.
+- `rss_mb` — Absolute process resident set size in MB after batch scoring, including
+  loaded models, indexes, and caches; this is a snapshot, not peak memory.
+- `embedding_calls` — Measured embedded texts per sample during the throughput pass
+  (a batch call embedding N texts counts as N); no inference means zero.
+- `total_tokens` — Measured whitespace words submitted to embedding and cross-encoder
+  inference during that pass, including descriptions and chunks. This is an input
+  volume proxy, not tokenizer tokens after truncation; `token_count_method` records it.
 - `benchmark_mode` — Whether the run used `full` or `fast` profiling.
 - `latency_profile_samples`, `throughput_profile_samples` — How many samples were used
   for the efficiency profiling pass.
@@ -349,6 +363,43 @@ Key fields:
     "n_efficiency_runs": 3
 }
 ```
+
+### Correctness and audit artifacts
+
+TPS and cascade require a nonempty malicious-only training bank. Missing banks and
+banks overlapping evaluation IDs or prompt bodies fail; they never fall back to
+fitting on test or validation data. Preparation excludes held-out bodies across
+sources from the bank and keeps repeated synthetic description/body inputs in the
+same split. Drift holdout files contain only deduplicated test inputs.
+Regenerate existing prepared data with `tadbench prepare` before running this version.
+
+Matrix configs can supply a `validation_datasets` mapping from each test path to
+its validation path, plus `calibration_target_fpr` (default 0.005). Validation and
+test inputs must be disjoint. `observed_fpr`, `observed_recall`, and
+`calibrated_threshold` describe that one operating point; `fpr_target` and `tpr`
+remain separately reported, interpolated test-set ROC statistics. With 820 benign
+examples, one false positive is already 0.122% FPR: 0.1% ROC interpolation does not
+represent an empirically attainable deterministic threshold.
+
+Each result links an `artifact_dir` under the output directory's `runs/` folder:
+
+- `predictions.jsonl`: sample IDs, labels, attack families, sources, raw scores,
+  and cascade stage evidence when applicable.
+- `manifest.json`: input SHA-256 hashes, configuration, code revision, installed
+  package versions, sample counts, and mean scores by class. Archive the matching
+  input files alongside these artifacts; hashes alone cannot restore the inputs.
+- IPSOD diagnostics include eligible chunk counts by class and the AUROC/TPR of
+  the chunk-eligibility baseline. Its AUROC is also included in the result CSV.
+  If every benign example is ineligible, semantic outlier detection cannot be
+  distinguished from the minimum-chunk gate on that slice.
+- ICCD diagnostics count how many bodies the selected strategy actually shortens.
+  `summary_first_512` is prefix truncation, not summarization, and adds no experiment
+  when every body already has at most 512 whitespace words.
+
+Efficiency profiling bypasses embedding caches in both `run` and `matrix`.
+`combined_latency_ms` is the cascade's cache-bypassed batch time per input,
+consistent with throughput. Cross-encoder rows use the same separate NLI model
+across embedder tiers and are repeated measurements rather than distinct models.
 
 ### Environment Variables
 
