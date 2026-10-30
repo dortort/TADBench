@@ -52,6 +52,8 @@ def _stratified_split(
 
     Returns (train, val, test) lists.
     """
+    if not (0 <= val_frac <= 1 and 0 <= test_frac <= 1 and val_frac + test_frac <= 1):
+        raise ValueError("Split fractions must be nonnegative and sum to at most one")
     rng = random.Random(seed)
     by_label: dict[str, list[dict]] = defaultdict(list)
     for s in samples:
@@ -65,8 +67,8 @@ def _stratified_split(
         g = group[:]
         rng.shuffle(g)
         n = len(g)
-        n_test = max(1, int(n * test_frac))
-        n_val = max(1, int(n * val_frac))
+        n_test = min(n, max(1, int(n * test_frac))) if test_frac else 0
+        n_val = min(n - n_test, max(1, int(n * val_frac))) if val_frac else 0
         test_all.extend(g[:n_test])
         val_all.extend(g[n_test: n_test + n_val])
         train_all.extend(g[n_test + n_val:])
@@ -416,14 +418,22 @@ def build_splits(
     print("=" * 60)
     print("[splits] Step 4: Drift holdout splits")
     print("=" * 60)
-    # Load all available data for drift holdout files
+    # Only canonical test files belong in holdouts. Derived/combined files
+    # overlap these inputs, and train/validation data must stay out.
     all_for_drift: list[dict[str, Any]] = []
-    for fname in out.glob("*.jsonl"):
-        if "drift_holdout" not in fname.name and "threat_bank" not in fname.name:
-            try:
-                all_for_drift.extend(read_jsonl(fname))
-            except Exception:
-                pass
+    seen: set[tuple[str, str]] = set()
+    for fname in test_files + [
+        out / f"adversarial_{attack}_evasion.jsonl"
+        for attack in ("tps", "ipsod", "iccd")
+    ]:
+        if fname.exists():
+            for record in read_jsonl(fname):
+                key = (record["advertised_description"], record["prompt_body"])
+                if key not in seen:
+                    seen.add(key)
+                    all_for_drift.append(record)
+    for stale in out.glob("drift_holdout_*.jsonl"):
+        stale.unlink()
     build_drift_holdout_splits(all_for_drift, out)
 
     print("=" * 60)
