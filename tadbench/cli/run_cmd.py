@@ -170,10 +170,12 @@ def run(
 
     # Load threshold config
     thresholds: dict[str, float] = {}
+    calibrated_configs: dict[str, dict] = {}
     if threshold_config is not None:
         try:
             payload = load_thresholds(threshold_config)
             thresholds = payload.get("thresholds", {})
+            calibrated_configs = payload.get("detector_configs", {})
             click.echo(f"[run] Loaded {len(thresholds)} thresholds from {threshold_config}")
         except Exception as exc:
             click.echo(f"[run] WARNING: could not load threshold config: {exc}")
@@ -230,7 +232,8 @@ def run(
 
     for tech in techniques:
         click.echo(f"\n[run] === Technique: {tech} ===")
-        merged_config = {**DEFAULT_DETECTOR_CONFIG.get(tech, {}), **det_config}
+        merged_config = {**DEFAULT_DETECTOR_CONFIG.get(tech, {}),
+                         **calibrated_configs.get(tech, {}), **det_config}
 
         try:
             from tadbench.cli.calibrate_cmd import _build_detector, _fit_detector

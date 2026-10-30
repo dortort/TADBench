@@ -177,3 +177,16 @@ def test_combined_latency_includes_stage_reach_fractions(mock_embedder):
     det._stage_latencies = [.1, .02, .04]
     det._stage_call_counts = [10, 2, 2]
     assert det.aggregate_metrics(metadata).combined_latency_ms == pytest.approx(16)
+
+
+def test_gate_calibration_controls_validation_fpr(mock_embedder):
+    det = CascadeDetector(mock_embedder)
+    samples = [_make_sample(str(i), label="benign" if i < 6 else "malicious") for i in range(9)]
+    # Separate benign false positives at each gate: a final threshold alone
+    # could not enforce the union FPR while preserving early-exit decisions.
+    det._stage1.score = MagicMock(return_value=np.array([.9, .1, .1, .1, .1, .1, .95, .3, .3]))
+    det._stage2.score = MagicMock(return_value=np.array([.1, .9, .1, .1, .1, .1, .3, .95, .3]))
+    det._stage3.score = MagicMock(return_value=np.array([.1, .1, .9, .1, .1, .1, .3, .3, .95]))
+    gates = det.calibrate_gates(samples, target_fpr=.1)
+    assert all(value > .9 for value in gates.values())
+    assert det.stage1_threshold == gates["stage1_threshold"]

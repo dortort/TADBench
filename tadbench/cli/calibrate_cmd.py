@@ -146,15 +146,18 @@ def calibrate(
 
     # Score each technique
     calibrated: dict[str, float] = {}
+    detector_configs: dict[str, dict] = {}
 
     for tech in techniques:
         click.echo(f"\n[calibrate] Scoring technique: {tech} ...")
         try:
             detector = _build_detector(tech, emb, bank_path, DEFAULT_DETECTOR_CONFIG.get(tech, {}))
             _fit_detector(detector, tech, bank_path, raw_samples)
+            if tech == "cascade":
+                detector_configs[tech] = detector.calibrate_gates(samples, target_fpr)
             y_score = detector.score(samples)
 
-            threshold = calibrate_threshold(y_true[: len(y_score)], y_score, target_fpr)
+            threshold = .5 if tech == "cascade" else calibrate_threshold(y_true, y_score, target_fpr)
             calibrated[tech] = threshold
             click.echo(f"[calibrate]   {tech}: threshold = {threshold:.6f}")
 
@@ -173,6 +176,7 @@ def calibrate(
         out_path,
         target_fpr=target_fpr,
         dataset_name=dataset_path.name,
+        detector_configs=detector_configs,
     )
 
     click.echo(f"\n[calibrate] Saved {len(calibrated)} threshold(s) to: {out_path}")
