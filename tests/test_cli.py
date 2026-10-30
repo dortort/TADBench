@@ -479,3 +479,28 @@ class TestCliGroup:
         runner = CR()
         result = runner.invoke(cli, ["nonexistent-command"])
         assert result.exit_code != 0
+
+
+def test_run_writes_auditable_threshold_metrics(tmp_path, mock_embedder):
+    from click.testing import CliRunner
+    dataset = tmp_path / "test.jsonl"
+    _write_dataset(dataset, [
+        {"id": str(i), "advertised_description": "Review the content", "prompt_body": f"short {i}",
+         "label": "benign" if i == 0 else "malicious", "attack_type": "none" if i == 0 else "direct_injection",
+         "source": "synthetic_mismatch", "metadata": {"tokens": 2, "language": "en"}}
+        for i in range(2)
+    ])
+    thresholds = tmp_path / "thresholds.json"
+    thresholds.write_text(json.dumps({"thresholds": {"intra_prompt_outlier": .5}}))
+    output = tmp_path / "result.json"
+    with patch("tadbench.embedders.sentence_transformer.SentenceTransformerEmbedder", return_value=mock_embedder):
+        result = CliRunner().invoke(cli, ["run", "--technique", "intra_prompt_outlier",
+            "--dataset", str(dataset), "--embedder", "small", "--mode", "fast",
+            "--threshold-config", str(thresholds), "--output", str(output)])
+    assert result.exit_code == 0, result.output
+    report = json.loads(output.read_text())
+    assert report["per_attack_recall"] == {"direct_injection": 0.0}
+    assert report["embedding_calls"] == 0
+    assert report["total_tokens"] == 0
+    assert report["rss_mb"] > 0
+    assert (Path(report["artifact_dir"]) / "predictions.jsonl").exists()

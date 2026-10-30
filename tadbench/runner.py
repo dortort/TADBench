@@ -96,6 +96,8 @@ class BenchmarkResult:
     calibrated_threshold: Optional[float] = None
     benchmark_mode: str = "full"
     operating_point: dict | None = None
+    artifact_dir: str | None = None
+    diagnostics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Serialise to a plain dict suitable for JSON output."""
@@ -113,6 +115,8 @@ class BenchmarkResult:
             "calibration_error": self.calibration_error,
             "per_attack_recall": self.per_attack_recall,
             "operating_point": self.operating_point,
+            "artifact_dir": self.artifact_dir,
+            "diagnostics": self.diagnostics,
             "per_group_metrics": self.per_group_metrics,
             "efficiency": {
                 "p50_ms": eff.p50_ms,
@@ -151,6 +155,7 @@ class BenchmarkResult:
             "embedder": self.embedder,
             "dataset_slice": self.dataset_slice,
             "benchmark_mode": self.benchmark_mode,
+            "artifact_dir": self.artifact_dir,
             "attack_type": "all",
             "calibration_target_fpr": self.target_fpr,
             "calibrated_threshold": self.calibrated_threshold,
@@ -174,6 +179,9 @@ class BenchmarkResult:
             "token_count_method": eff.token_count_method,
             "rss_measurement": eff.rss_measurement,
         }
+        base["chunk_eligibility_baseline_auroc"] = self.diagnostics.get("chunk_eligibility_baseline", {}).get("auroc")
+        base["benign_chunk_eligible"] = self.diagnostics.get("chunk_eligible_by_label", {}).get("benign")
+        base["malicious_chunk_eligible"] = self.diagnostics.get("chunk_eligible_by_label", {}).get("malicious")
         # Add cascade fields (NaN when not applicable)
         if self.cascade_metrics:
             base["avg_stage_reached"] = self.cascade_metrics.get("avg_stage_reached", float("nan"))
@@ -319,6 +327,7 @@ class BenchmarkRunner:
 
         cascade_metrics: Optional[dict] = None
 
+        cascade_meta_list = None
         if technique == "cascade" and isinstance(detector, CascadeDetector):
             y_score, cascade_meta_list = detector.score_with_metadata(test_samples)
             agg = detector.aggregate_metrics(cascade_meta_list)
@@ -389,6 +398,16 @@ class BenchmarkRunner:
         if cascade_metrics is not None:
             cascade_metrics["combined_latency_ms"] = 1000 / efficiency.throughput_rps
 
+        from tadbench.evaluation.artifacts import write_run_artifacts
+        artifact_dir = write_run_artifacts(
+            self.results_dir, test_samples, y_score,
+            {"test": dataset_path, "validation": val_dataset_path,
+             "threat_bank": threat_bank_path if technique in ("threat_prototype", "cascade") else None},
+            {"technique": technique, "embedder": self._embedder.model_name,
+             "detector": merged_config, "benchmark_mode": benchmark_mode,
+             "threshold": calibrated_threshold}, detector, cascade_meta_list,
+        )
+
         return BenchmarkResult(
             detector_name=detector.name,
             embedder=self.embedder_tier,
@@ -404,6 +423,8 @@ class BenchmarkRunner:
             target_fpr=target_fpr,
             calibrated_threshold=calibrated_threshold,
             operating_point=metrics.get("operating_point"),
+            artifact_dir=artifact_dir,
+            diagnostics=json.loads((Path(artifact_dir) / "manifest.json").read_text())["diagnostics"],
             benchmark_mode=benchmark_mode,
         )
 
@@ -911,33 +932,6 @@ def _merge_config(technique: str, overrides: Optional[dict]) -> dict:
     if overrides:
         defaults.update(overrides)
     return defaults
-
-
-def _extract_per_attack_recall(
-    per_group: dict[str, dict],
-    target_fpr: float,
-) -> dict[str, float]:
-    """Extract TPR (recall) at *target_fpr* for each attack group.
-
-    Parameters
-    ----------
-    per_group:
-        Output of ``compute_per_group_metrics``, keyed by group label.
-    target_fpr:
-        The FPR level at which recall is reported.
-
-    Returns
-    -------
-    dict[str, float]
-        Mapping of attack_type -> TPR at *target_fpr*.
-    """
-    result: dict[str, float] = {}
-    for group_name, group_data in per_group.items():
-        tpr_map: dict = group_data.get("tpr_at_fpr", {})
-        # tpr_at_fpr keys may be float or string depending on caller
-        tpr_val = tpr_map.get(target_fpr, tpr_map.get(str(target_fpr), float("nan")))
-        result[group_name] = float(tpr_val) if tpr_val is not None else float("nan")
-    return result
 
 
 def _scaling_variables_for(technique: str) -> dict[str, tuple[str, list]]:

@@ -284,6 +284,7 @@ def run(
                 "throughput_profile_samples": efficiency.throughput_profile_samples,
             }
 
+            cascade_meta = None
             # Cascade-specific fields
             if tech == "cascade" and hasattr(detector, "score_with_metadata"):
                 try:
@@ -297,6 +298,18 @@ def run(
                 except Exception as e:
                     click.echo(f"[run]   cascade metadata unavailable: {e}")
 
+            from tadbench.evaluation.artifacts import write_run_artifacts
+            result["artifact_dir"] = write_run_artifacts(
+                out_path.parent, samples, y_score,
+                {"test": dataset_path, "threshold_config": threshold_config,
+                 "threat_bank": bank_path if tech in ("threat_prototype", "cascade") else None},
+                {"technique": tech, "embedder": emb.model_name, "detector": merged_config,
+                 "benchmark_mode": benchmark_mode, "threshold": threshold}, detector,
+                cascade_meta if tech == "cascade" else None,
+            )
+
+            result["diagnostics"] = json.loads(
+                (Path(result["artifact_dir"]) / "manifest.json").read_text())["diagnostics"]
             all_results.append(result)
 
             # Print per-technique summary
@@ -353,6 +366,7 @@ def _write_csv(results: list[dict[str, Any]], path: Path) -> None:
             "dataset": r["dataset"],
             "n_samples": r["n_samples"],
             "benchmark_mode": r.get("benchmark_mode"),
+            "artifact_dir": r.get("artifact_dir"),
             "auroc": r.get("auroc"),
             "auprc": r.get("auprc"),
             "calibration_error": r.get("calibration_error"),
@@ -367,6 +381,8 @@ def _write_csv(results: list[dict[str, Any]], path: Path) -> None:
             "latency_profile_samples": r.get("latency_profile_samples"),
             "throughput_profile_samples": r.get("throughput_profile_samples"),
         }
+        flat["chunk_eligibility_baseline_auroc"] = (
+            r.get("diagnostics", {}).get("chunk_eligibility_baseline", {}).get("auroc"))
         # TPR@FPR columns
         for fpr_key, tpr_val in (r.get("tpr_at_fpr") or {}).items():
             flat[f"tpr_at_fpr_{fpr_key}"] = tpr_val
