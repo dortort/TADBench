@@ -251,21 +251,8 @@ def run(
             throughput = efficiency.throughput_rps
 
             # Compute metrics
-            metrics = compute_all_metrics(y_true, y_score, groups=groups)
-
-            # Apply threshold if available
-            threshold = thresholds.get(tech)
-            if threshold is not None:
-                y_pred = (y_score >= threshold).astype(int)
-                tp = int(np.sum((y_pred == 1) & (y_true == 1)))
-                fp = int(np.sum((y_pred == 1) & (y_true == 0)))
-                fn = int(np.sum((y_pred == 0) & (y_true == 1)))
-                tn = int(np.sum((y_pred == 0) & (y_true == 0)))
-                metrics["threshold"] = threshold
-                metrics["tp"] = tp
-                metrics["fp"] = fp
-                metrics["fn"] = fn
-                metrics["tn"] = tn
+            threshold = thresholds.get(tech, .5 if tech == "cascade" else None)
+            metrics = compute_all_metrics(y_true, y_score, groups=groups, threshold=threshold)
 
             result: dict[str, Any] = {
                 "detector_name": tech,
@@ -277,7 +264,9 @@ def run(
                 "auprc": metrics.get("auprc"),
                 "tpr_at_fpr": metrics.get("tpr_at_fpr", {}),
                 "calibration_error": metrics.get("calibration_error"),
-                "per_attack_recall": metrics.get("per_group", {}),
+                "per_group_metrics": metrics.get("per_group", {}),
+                "per_attack_recall": metrics.get("per_attack_recall", {}),
+                "operating_point": metrics.get("operating_point"),
                 "p50_ms": p50,
                 "p95_ms": p95,
                 "p99_ms": p99,
@@ -315,10 +304,8 @@ def run(
 
             if result.get("per_attack_recall"):
                 click.echo("[run]   Per-attack recall:")
-                for att, rec_dict in sorted(result["per_attack_recall"].items()):
-                    if isinstance(rec_dict, dict):
-                        auroc_val = rec_dict.get("auroc", "N/A")
-                        click.echo(f"    {att:<30} AUROC={auroc_val}")
+                for att, recall in sorted(result["per_attack_recall"].items()):
+                    click.echo(f"    {att:<30} recall={recall:.4f}")
 
         except Exception as exc:
             click.echo(f"[run] ERROR running {tech}: {exc}")
@@ -381,9 +368,15 @@ def _write_csv(results: list[dict[str, Any]], path: Path) -> None:
         for fpr_key, tpr_val in (r.get("tpr_at_fpr") or {}).items():
             flat[f"tpr_at_fpr_{fpr_key}"] = tpr_val
         # Per-attack AUROC
-        for att, rec_dict in (r.get("per_attack_recall") or {}).items():
+        for att, rec_dict in (r.get("per_group_metrics") or {}).items():
             if isinstance(rec_dict, dict):
-                flat[f"recall_{att}_auroc"] = rec_dict.get("auroc")
+                flat[f"auroc_{att}"] = rec_dict.get("auroc")
+        for att, recall in (r.get("per_attack_recall") or {}).items():
+            flat[f"recall_{att}"] = recall
+        for key, value in (r.get("operating_point") or {}).items():
+            flat[f"operating_{key}"] = value
+        flat["token_count_method"] = r.get("token_count_method")
+        flat["rss_measurement"] = r.get("rss_measurement")
         # Cascade-specific
         for key in ("avg_stage_reached", "pct_filtered_stage1", "pct_filtered_stage2"):
             if key in r:

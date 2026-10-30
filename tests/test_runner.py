@@ -125,14 +125,15 @@ class TestRunSingle:
         with patch("tadbench.runner.SentenceTransformerEmbedder", return_value=mock_embedder):
             runner = BenchmarkRunner(embedder_tier="small", cache=False, results_dir=str(tmp_path))
 
-        try:
-            result = runner.run_single(
-                technique="threat_prototype",
-                dataset_path=str(dataset_path),
-                val_dataset_path=str(val_path),
-            )
-        except Exception as exc:
-            pytest.skip(f"run_single raised unexpected error: {exc}")
+        bank = tmp_path / "bank.jsonl"
+        threat = _make_sample("malicious", "direct_injection")
+        threat.prompt_body = "Separate training threat"
+        _write_samples_jsonl(bank, [threat])
+        result = runner.run_single(
+            technique="threat_prototype", dataset_path=dataset_path,
+            val_dataset_path=val_path, threat_bank_path=bank,
+            benchmark_mode="fast",
+        )
 
         # Result should have standard metric fields
         if hasattr(result, "__dict__"):
@@ -167,6 +168,7 @@ class TestRunSingle:
                 technique="threat_prototype",
                 dataset_path=str(dataset_path),
                 benchmark_mode="fast",
+                threat_bank_path=_make_bank_file(tmp_path),
             )
 
         assert bypass_during_profiling == [True]
@@ -277,6 +279,7 @@ class TestRunMatrix:
             val_dataset_path=None,
             threat_bank_path=None,
             benchmark_mode="full",
+            target_fprs=None,
         ):
             return BenchmarkResult(
                 detector_name=technique,
@@ -357,3 +360,30 @@ class TestRunMatrix:
                 runner.run_matrix(config_path, embedders=["medium"])
 
         assert mock_run_single.call_count == 1
+
+
+def _make_bank_file(tmp_path):
+    threat = _make_sample("malicious", "direct_injection")
+    threat.prompt_body = "Disjoint training threat"
+    bank = tmp_path / "bank.jsonl"
+    _write_samples_jsonl(bank, [threat])
+    return bank
+
+
+def test_runner_uses_validation_threshold_for_attack_recall(mock_embedder, tmp_path):
+    dataset = _make_sample_file(tmp_path, 2, 2)
+    val = tmp_path / "val.jsonl"
+    _write_samples_jsonl(val, [_make_sample("benign"), _make_sample("malicious", "direct_injection")])
+    with patch("tadbench.runner.SentenceTransformerEmbedder", return_value=mock_embedder):
+        runner = BenchmarkRunner("small", cache=False, results_dir=tmp_path)
+    detector = MagicMock()
+    detector.name = "stub"
+    detector.score.side_effect = [np.array([.1, .2, .6, .9]), np.array([.1, .8])]
+    efficiency = EfficiencyReport(1, 1, 1, 1, 1, 0)
+    with patch.object(runner, "_create_detector", return_value=detector), \
+         patch.object(runner, "_fit_detector"), \
+         patch("tadbench.runner.LatencyProfiler.profile_detector", return_value=efficiency):
+        result = runner.run_single("intent_content_consistency", dataset, val_dataset_path=val)
+    assert result.calibrated_threshold == .8
+    assert result.per_attack_recall == {"direct_injection": .5}
+    assert result.operating_point["fpr"] == 0

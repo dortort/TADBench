@@ -95,6 +95,7 @@ class BenchmarkResult:
     target_fpr: float = 0.005
     calibrated_threshold: Optional[float] = None
     benchmark_mode: str = "full"
+    operating_point: dict | None = None
 
     def to_dict(self) -> dict:
         """Serialise to a plain dict suitable for JSON output."""
@@ -111,6 +112,7 @@ class BenchmarkResult:
             "tpr_at_fpr": {str(k): v for k, v in self.tpr_at_fpr.items()},
             "calibration_error": self.calibration_error,
             "per_attack_recall": self.per_attack_recall,
+            "operating_point": self.operating_point,
             "per_group_metrics": self.per_group_metrics,
             "efficiency": {
                 "p50_ms": eff.p50_ms,
@@ -126,6 +128,8 @@ class BenchmarkResult:
                 "cross_encoder_calls_per_sample": eff.cross_encoder_calls_per_sample,
                 "latency_profile_samples": eff.latency_profile_samples,
                 "throughput_profile_samples": eff.throughput_profile_samples,
+                "token_count_method": eff.token_count_method,
+                "rss_measurement": eff.rss_measurement,
             },
             "cascade_metrics": self.cascade_metrics,
         }
@@ -148,6 +152,10 @@ class BenchmarkResult:
             "dataset_slice": self.dataset_slice,
             "benchmark_mode": self.benchmark_mode,
             "attack_type": "all",
+            "calibration_target_fpr": self.target_fpr,
+            "calibrated_threshold": self.calibrated_threshold,
+            "observed_fpr": (self.operating_point or {}).get("fpr"),
+            "observed_recall": (self.operating_point or {}).get("recall"),
             "fpr_target": self.target_fpr,
             "tpr": self.tpr_at_fpr.get(self.target_fpr, float("nan")),
             "auroc": self.auroc,
@@ -163,6 +171,8 @@ class BenchmarkResult:
             "cross_encoder_calls": eff.cross_encoder_calls_per_sample,
             "latency_profile_samples": eff.latency_profile_samples,
             "throughput_profile_samples": eff.throughput_profile_samples,
+            "token_count_method": eff.token_count_method,
+            "rss_measurement": eff.rss_measurement,
         }
         # Add cascade fields (NaN when not applicable)
         if self.cascade_metrics:
@@ -244,6 +254,7 @@ class BenchmarkRunner:
         val_dataset_path: Optional[str | Path] = None,
         threat_bank_path: Optional[str | Path] = None,
         benchmark_mode: str = "full",
+        target_fprs: Optional[list[float]] = None,
     ) -> BenchmarkResult:
         """Run a single detection technique on a dataset.
 
@@ -261,7 +272,8 @@ class BenchmarkRunner:
             FPR target for TPR@FPR and threshold calibration.
         val_dataset_path:
             If provided, calibrate the detection threshold using this validation
-            JSONL file instead of deriving it from the test set.
+            JSONL file to report held-out recall. Without it, threshold metrics are unavailable
+            except for the cascade's explicit binary decision.
         threat_bank_path:
             Path to a threat-bank JSONL file.  Required for ``threat_prototype``
             and ``cascade`` techniques.
@@ -320,7 +332,7 @@ class BenchmarkRunner:
             y_score = detector.score(test_samples)
 
         # Optional threshold calibration from validation set
-        calibrated_threshold: Optional[float] = None
+        calibrated_threshold: Optional[float] = 0.5 if technique == "cascade" else None
         if val_dataset_path is not None:
             val_samples = self._load_samples(Path(val_dataset_path))
             if val_samples:
@@ -344,13 +356,12 @@ class BenchmarkRunner:
             y_true,
             y_score,
             groups=attack_groups,
-            target_fprs=[0.001, 0.005, 0.01],
+            target_fprs=target_fprs,
+            threshold=calibrated_threshold,
         )
 
         # Extract per-attack recall at target_fpr
-        per_attack_recall = _extract_per_attack_recall(
-            metrics.get("per_group", {}), target_fpr
-        )
+        per_attack_recall = metrics.get("per_attack_recall", {})
 
         # Profile efficiency
         profiling_cfg = resolve_matrix_profiling_mode(benchmark_mode)
@@ -371,6 +382,9 @@ class BenchmarkRunner:
                 max_throughput_samples=profiling_cfg.max_throughput_samples,
             )
 
+        if cascade_metrics is not None:
+            cascade_metrics["combined_latency_ms"] = 1000 / efficiency.throughput_rps
+
         return BenchmarkResult(
             detector_name=detector.name,
             embedder=self.embedder_tier,
@@ -385,6 +399,7 @@ class BenchmarkRunner:
             cascade_metrics=cascade_metrics,
             target_fpr=target_fpr,
             calibrated_threshold=calibrated_threshold,
+            operating_point=metrics.get("operating_point"),
             benchmark_mode=benchmark_mode,
         )
 
@@ -468,7 +483,9 @@ class BenchmarkRunner:
                                 technique=technique,
                                 dataset_path=dataset_path,
                                 detector_config=variant,
-                                target_fpr=target_fprs[0] if target_fprs else 0.005,
+                                target_fpr=config.get("calibration_target_fpr", 0.005),
+                                target_fprs=target_fprs,
+                                val_dataset_path=config.get("validation_datasets", {}).get(dataset_path),
                                 threat_bank_path=threat_bank_path,
                                 benchmark_mode=benchmark_mode,
                             )
@@ -500,6 +517,7 @@ class BenchmarkRunner:
                                     group_row["tpr"] = group_data.get(
                                         "tpr_at_fpr", {}
                                     ).get(fpr, float("nan"))
+                                    group_row["observed_recall"] = result.per_attack_recall.get(attack_type)
                                     group_row["auroc"] = group_data.get("auroc", float("nan"))
                                     group_row["auprc"] = group_data.get("auprc", float("nan"))
                                     rows.append(group_row)
@@ -661,6 +679,7 @@ class BenchmarkRunner:
                 row["tpr"] = group_data.get("tpr_at_fpr", {}).get(
                     result.target_fpr, float("nan")
                 )
+                row["observed_recall"] = result.per_attack_recall.get(attack_type)
                 row["auroc"] = group_data.get("auroc", float("nan"))
                 row["auprc"] = group_data.get("auprc", float("nan"))
                 rows.append(row)
@@ -799,8 +818,7 @@ class BenchmarkRunner:
         """Determine what samples to pass to ``detector.fit()``.
 
         For ``threat_prototype`` and ``cascade``, the threat bank JSONL is
-        loaded when provided; otherwise the malicious test samples are used as
-        a fallback (useful for testing, not production).
+        required, validated, and checked for overlap with evaluation prompts.
 
         For ``intra_prompt_outlier`` and ``intent_content_consistency``,
         ``fit()`` is a no-op, so we simply return an empty list.

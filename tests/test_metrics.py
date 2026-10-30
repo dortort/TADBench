@@ -272,3 +272,9 @@ def test_attack_recall_uses_fixed_threshold():
     assert result["per_attack_recall"] == {"A": .5}
     assert result["operating_point"]["fpr"] == 0
     assert result["per_group"]["A"]["tpr_at_fpr"][.01] == 1
+
+
+def test_custom_fpr_targets_reach_attack_breakdowns():
+    result = compute_all_metrics(np.array([0, 1]), np.array([.1, .9]),
+                                 groups=["none", "attack"], target_fprs=[.02])
+    assert result["per_group"]["attack"]["tpr_at_fpr"] == {.02: 1.}
