@@ -44,7 +44,7 @@ def _make_sample(
     attack_type: str = "none",
     desc: str = "A description.",
 ) -> BenchmarkSample:
-    body = "Sample prompt body for testing purposes."
+    body = f"Sample prompt body {uuid.uuid4()} for testing purposes."
     return BenchmarkSample(
         id=str(uuid.uuid4()),
         advertised_description=desc,

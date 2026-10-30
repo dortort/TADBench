@@ -22,7 +22,7 @@ def calibrate_threshold(
 ) -> float:
     """Find the score threshold that achieves FPR <= target_fpr.
 
-    Computes the ROC curve and returns the highest threshold where the
+    Computes the ROC curve and returns the threshold with highest TPR where the
     false positive rate does not exceed ``target_fpr``.  If no such threshold
     exists (e.g. target_fpr is lower than the minimum achievable FPR for the
     given data), returns the threshold corresponding to the minimum FPR.
@@ -117,6 +117,7 @@ def save_thresholds(
     path: Union[str, Path],
     target_fpr: float,
     dataset_name: str,
+    detector_configs: dict | None = None,
 ) -> None:
     """Persist calibrated thresholds to a JSON file with metadata.
 
@@ -147,6 +148,7 @@ def save_thresholds(
         "calibration_dataset": dataset_name,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "thresholds": {k: float(v) for k, v in thresholds.items()},
+        "detector_configs": detector_configs or {},
     }
 
     with path.open("w", encoding="utf-8") as fh:

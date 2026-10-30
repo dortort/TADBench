@@ -335,21 +335,25 @@ class BenchmarkRunner:
         calibrated_threshold: Optional[float] = 0.5 if technique == "cascade" else None
         if val_dataset_path is not None:
             val_samples = self._load_samples(Path(val_dataset_path))
+            if not val_samples:
+                raise ValueError("Validation dataset is empty")
+            from tadbench.data.validation import validate_disjoint_samples
+            validate_disjoint_samples(val_samples, test_samples)
             if val_samples:
                 validate_dataset_for_technique(technique, val_samples, Path(val_dataset_path))
-                self._fit_detector(detector, technique, val_samples, threat_bank_path)
+                if technique in ("threat_prototype", "cascade"):
+                    self._resolve_fit_samples(technique, val_samples, threat_bank_path)
                 val_scores = detector.score(val_samples)
                 val_labels = np.array(
                     [1 if s.label == "malicious" else 0 for s in val_samples], dtype=int
                 )
-                # Restore the original fit after calibration scoring
-                self._fit_detector(detector, technique, test_samples, threat_bank_path)
-                try:
-                    calibrated_threshold = calibrate_threshold(
-                        val_labels, val_scores, target_fpr
-                    )
-                except ValueError as exc:
-                    logger.warning("Threshold calibration failed: %s", exc)
+                if isinstance(detector, CascadeDetector):
+                    merged_config.update(detector.calibrate_gates(val_samples, target_fpr))
+                    calibrated_threshold = .5
+                    y_score, cascade_meta_list = detector.score_with_metadata(test_samples)
+                    cascade_metrics = vars(detector.aggregate_metrics(cascade_meta_list))
+                else:
+                    calibrated_threshold = calibrate_threshold(val_labels, val_scores, target_fpr)
 
         # Compute detection quality metrics
         metrics = compute_all_metrics(

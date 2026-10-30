@@ -237,6 +237,24 @@ class CascadeDetector(BaseDetector):
         )
         return final_scores, meta_list
 
+    def calibrate_gates(self, samples: list[BenchmarkSample], target_fpr: float) -> dict:
+        """Allocate the validation FPR budget equally across the three gates.
+
+        Each gate is calibrated against all validation negatives. The union
+        bound then limits validation false positives to the total budget,
+        including when execution short-circuits before later gates.
+        """
+        from tadbench.evaluation.calibration import calibrate_threshold
+
+        labels = np.array([s.label == "malicious" for s in samples], dtype=int)
+        values = {}
+        for index, stage in enumerate((self._stage1, self._stage2, self._stage3), 1):
+            threshold = calibrate_threshold(labels, stage.score(samples), target_fpr / 3)
+            values[f"stage{index}_threshold"] = threshold
+        for key, value in values.items():
+            setattr(self, key, value)
+        return values
+
     def aggregate_metrics(self, metadata: list[CascadeMetadata]) -> CascadeAggregateMetrics:
         """Compute aggregate cascade metrics from a list of per-sample metadata."""
         if not metadata:
