@@ -157,3 +157,23 @@ class TestCascadeAggregateMetrics:
         agg = det.aggregate_metrics(metadata)
         assert agg.pct_filtered_stage1 == 1.0
         assert agg.avg_stage_reached == 1.0
+
+
+def test_cascade_decisions_preserve_each_gate(mock_embedder):
+    det = CascadeDetector(mock_embedder, stage3_threshold=.5)
+    samples = [_make_sample(str(i)) for i in range(4)]
+    det._stage1.score = MagicMock(return_value=np.array([.81, .1, .1, .1]))
+    det._stage2.score = MagicMock(return_value=np.array([.71, .1, .1]))
+    det._stage3.score = MagicMock(return_value=np.array([.49, .51]))
+    scores, metadata = det.score_with_metadata(samples)
+    np.testing.assert_array_equal(scores, [1, 1, 0, 1])
+    assert [m.stage_reached for m in metadata] == [1, 2, 3, 3]
+    assert [m.final_score for m in metadata] == list(scores)
+
+
+def test_combined_latency_includes_stage_reach_fractions(mock_embedder):
+    det = CascadeDetector(mock_embedder)
+    metadata = [CascadeMetadata(1, .9)] * 8 + [CascadeMetadata(3, .1)] * 2
+    det._stage_latencies = [.1, .02, .04]
+    det._stage_call_counts = [10, 2, 2]
+    assert det.aggregate_metrics(metadata).combined_latency_ms == pytest.approx(16)

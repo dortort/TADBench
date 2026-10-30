@@ -60,6 +60,7 @@ class CascadeDetector(BaseDetector):
         embedder: EmbedderProtocol,
         stage1_threshold: float = 0.8,
         stage2_threshold: float = 0.7,
+        stage3_threshold: float = 0.5,
         tps_kwargs: Optional[dict] = None,
         ipsod_kwargs: Optional[dict] = None,
         iccd_kwargs: Optional[dict] = None,
@@ -68,6 +69,7 @@ class CascadeDetector(BaseDetector):
         super().__init__(embedder, **kwargs)
         self.stage1_threshold = stage1_threshold
         self.stage2_threshold = stage2_threshold
+        self.stage3_threshold = stage3_threshold
 
         tps_kwargs = tps_kwargs or {}
         ipsod_kwargs = ipsod_kwargs or {}
@@ -89,6 +91,7 @@ class CascadeDetector(BaseDetector):
     def name(self) -> str:
         return (
             f"cascade_s1_{self.stage1_threshold}_s2_{self.stage2_threshold}"
+            f"_s3_{self.stage3_threshold}"
         )
 
     @property
@@ -106,7 +109,7 @@ class CascadeDetector(BaseDetector):
         self._stage3.fit(samples)
 
     def score(self, samples: list[BenchmarkSample]) -> np.ndarray:
-        """Run cascade and return final scores. Shape (n,)."""
+        """Return binary pipeline decisions (1 = malicious), not mixed raw scores."""
         scores, _ = self.score_with_metadata(samples)
         return scores
 
@@ -129,7 +132,11 @@ class CascadeDetector(BaseDetector):
         scores : np.ndarray, shape (n,)
         metadata : list[CascadeMetadata], length n
         """
+        self._stage_latencies = [0.0, 0.0, 0.0]
+        self._stage_call_counts = [0, 0, 0]
         n = len(samples)
+        if not n:
+            return np.array([], dtype=float), []
         final_scores = np.zeros(n, dtype=float)
         metadata: list[CascadeMetadata] = []
 
@@ -146,12 +153,12 @@ class CascadeDetector(BaseDetector):
         # Record stage-1 exits
         for i in range(n):
             if stage1_exit_mask[i]:
-                final_scores[i] = float(s1_scores[i])
+                final_scores[i] = 1.0
                 metadata.append(
                     CascadeMetadata(
                         stage_reached=1,
                         stage1_score=float(s1_scores[i]),
-                        final_score=float(s1_scores[i]),
+                        final_score=1.0,
                     )
                 )
 
@@ -176,12 +183,12 @@ class CascadeDetector(BaseDetector):
         stage2_exit_meta: dict[int, CascadeMetadata] = {}
         for j, global_i in enumerate(stage2_indices):
             if stage2_exit_mask[j]:
-                final_scores[global_i] = float(s2_scores[j])
+                final_scores[global_i] = 1.0
                 stage2_exit_meta[global_i] = CascadeMetadata(
                     stage_reached=2,
                     stage1_score=float(s1_scores[global_i]),
                     stage2_score=float(s2_scores[j]),
-                    final_score=float(s2_scores[j]),
+                    final_score=1.0,
                 )
 
         if not stage3_global_indices:
@@ -193,14 +200,7 @@ class CascadeDetector(BaseDetector):
         # --- Stage 3: IntentContent ---
         stage3_samples = [samples[i] for i in stage3_global_indices]
         t0 = time.perf_counter()
-        try:
-            s3_scores = self._stage3.score(stage3_samples)
-        except ValueError as exc:
-            # Pre-flight failure: all stage-3 samples lack descriptions
-            logger.warning(
-                "Stage 3 pre-flight failed (%s). Falling back to stage-2 scores.", exc
-            )
-            s3_scores = np.full(len(stage3_samples), np.nan, dtype=float)
+        s3_scores = self._stage3.score(stage3_samples)
         stage3_elapsed = time.perf_counter() - t0
         self._record_latency(2, stage3_elapsed, len(stage3_samples))
 
@@ -210,9 +210,11 @@ class CascadeDetector(BaseDetector):
         stage3_exit_meta: dict[int, CascadeMetadata] = {}
         for k, global_i in enumerate(stage3_global_indices):
             s3 = float(s3_scores[k])
-            # If NaN (no description), fall back to stage-2 score as final
+            # Stage evidence stays in metadata; final scores are decisions.
             fallback_s2 = float(s2_scores[_s2_pos[global_i]])
-            actual_final = s3 if not np.isnan(s3) else fallback_s2
+            if not np.isfinite(s3):
+                raise ValueError("Cascade stage 3 requires a finite score for every sample")
+            actual_final = float(s3 >= self.stage3_threshold)
             final_scores[global_i] = actual_final
             stage3_exit_meta[global_i] = CascadeMetadata(
                 stage_reached=3,
@@ -243,15 +245,8 @@ class CascadeDetector(BaseDetector):
         pct_s1 = sum(1 for s in stages if s == 1) / n
         pct_s1_or_s2 = sum(1 for s in stages if s <= 2) / n
 
-        # Weighted sum of per-stage mean latencies
-        combined_latency = 0.0
-        for stage_idx in range(3):
-            if self._stage_call_counts[stage_idx] > 0:
-                mean_s = (
-                    self._stage_latencies[stage_idx]
-                    / self._stage_call_counts[stage_idx]
-                )
-                combined_latency += mean_s * 1000  # convert to ms
+        # Total stage work divided by original traffic includes reach fractions.
+        combined_latency = sum(self._stage_latencies) * 1000 / n
 
         return CascadeAggregateMetrics(
             avg_stage_reached=avg_stage,
@@ -290,7 +285,7 @@ def _build_ordered_metadata(
                 CascadeMetadata(
                     stage_reached=1,
                     stage1_score=float(s1_scores[i]),
-                    final_score=float(s1_scores[i]),
+                    final_score=1.0,
                 )
             )
         elif i in stage2_exit_meta:
@@ -303,7 +298,7 @@ def _build_ordered_metadata(
                 CascadeMetadata(
                     stage_reached=1,
                     stage1_score=float(s1_scores[i]),
-                    final_score=float(s1_scores[i]),
+                    final_score=1.0,
                 )
             )
     return result
