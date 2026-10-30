@@ -26,3 +26,10 @@ def test_bank_rejects_copied_content_with_new_ids(tmp_path, sample_data):
     with pytest.raises(ValueError, match="overlaps"):
         load_threat_bank(bank, [copied])
     assert load_threat_bank(bank, [replace(threat, id="other", prompt_body="unseen")]) == [threat]
+
+
+def test_validation_and_test_cannot_share_inputs(sample_data):
+    from tadbench.data.validation import validate_disjoint_samples
+    copied = replace(sample_data[0], id="copy")
+    with pytest.raises(ValueError, match="overlap"):
+        validate_disjoint_samples(sample_data, [copied])
