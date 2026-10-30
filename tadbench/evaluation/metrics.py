@@ -179,6 +179,7 @@ def compute_per_group_metrics(
     y_true: ndarray,
     y_score: ndarray,
     groups: list[str],
+    target_fprs: list[float] | None = None,
 ) -> dict[str, dict]:
     """Compute AUROC, AUPRC, and TPR@FPR for each unique group label.
 
@@ -218,7 +219,7 @@ def compute_per_group_metrics(
         n_positive = int(y_true[mask].sum())
 
         if n_positive == 0:
-            undefined_tpr = compute_tpr_at_fpr(y_true[mask], y_score[mask])
+            undefined_tpr = compute_tpr_at_fpr(y_true[mask], y_score[mask], target_fprs)
             result[str(group)] = {
                 "n_samples": n_samples,
                 "n_positive": 0,
@@ -237,7 +238,7 @@ def compute_per_group_metrics(
             "n_positive": n_positive,
             "auroc": compute_auroc(gt, sc),
             "auprc": compute_auprc(gt, sc),
-            "tpr_at_fpr": compute_tpr_at_fpr(gt, sc),
+            "tpr_at_fpr": compute_tpr_at_fpr(gt, sc, target_fprs),
         }
 
     return result
@@ -303,7 +304,7 @@ def compute_all_metrics(
 
     if groups is not None:
         metrics["per_group"] = compute_per_group_metrics(
-            y_true_arr, y_score_arr, groups
+            y_true_arr, y_score_arr, groups, target_fprs
         )
 
     return metrics
