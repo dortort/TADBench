@@ -4,6 +4,14 @@ Full-mode run of `matrix_config.json` (11 detector variants × embedders: small,
 on `data/processed/benchmark_description_combined.jsonl` (3,451 samples: 820 benign,
 2,631 malicious).
 
+> Historical implementation results: the tables reproduce the archived CSV, but
+> the ECE implementation normalized raw scores on the test set, cascade ranking
+> mixed incompatible stage score scales, and ECOD-max collapsed to chunk count.
+> ECE and cascade comparisons require a new run with the corrected implementation.
+> Archived `rss_mb` values are batch RSS deltas, not model memory or peak RSS;
+> embedding/token cost fields are estimates. Per-example scores and input hashes
+> were not archived, so the run's training/test disjointness cannot be audited fully.
+
 ## Setup
 
 | | |
@@ -112,16 +120,19 @@ Each attack type is scored against all 820 benign samples.
   0.500 (all ties) on the short evasion sets.
 - **The ICCD bi-encoder ranks below chance** (AUROC < 0.5). The score is `1 − cosine`
   between description and body, so higher means more mismatched, which is the intended
-  direction. In this dataset, malicious bodies are on average closer to their
-  descriptions than benign bodies are. The cause has not been established.
-- **`summary_first_512` is identical to `full`.** It keeps the first 512 whitespace
-  tokens, but the embedders already truncate at 256 or 512 subword tokens, so both
-  strategies embed the same text.
+  direction. Malicious bodies tend to rank closer to their descriptions in this
+  slice. Class means were not archived, so a claim about average cosine similarity
+  is not established by the AUROC alone. The cause has not been established.
+- **`summary_first_512` is effectively identical to `full`.** No body in the local
+  matching test slice exceeds 512 whitespace words, so the strategy does no
+  shortening. Whitespace normalization can still change the text, and medium/large
+  metrics differ slightly at full precision. Model truncation further limits coverage.
 - **Cascade thresholds are fixed, not calibrated per embedder.** The stage-1 threshold
   of 0.8 applies to raw cosine similarity, whose range differs by model. The share of
   prompts exiting at stage 1 is 21% (small), 52% (medium), and 99% (large). On the
-  large embedder the cascade therefore reduces to `threat_prototype_flat_top1_max`,
-  and its metrics match that row.
+  large embedder the cascade therefore behaves approximately like
+  `threat_prototype_flat_top1_max`: 19 examples still continue beyond stage 1.
+  AUROC/AUPRC differ slightly, and reported ECE differs (0.144 versus 0.179).
 - **The cross-encoder ignores the embedder.** `intent_content_cross_encoder_full` uses
   `cross-encoder/nli-deberta-v3-base` directly, so its rows repeat across embedders.
 - **The benign `none` group has no per-attack AUROC**, since it contains no positives.
