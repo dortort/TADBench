@@ -166,3 +166,16 @@ class TestEmbeddingCallsPerSample:
         det.score_single(_make_sample(LONG_BENIGN))
         # After scoring a long text, avg_chunks should be updated
         assert det.embedding_calls_per_sample >= 1
+
+
+def test_ecod_detects_structure_and_handles_ties():
+    from tadbench.detectors.intra_prompt_outlier import _ecod_scores
+    identical = np.ones((8, 4))
+    np.testing.assert_array_equal(_ecod_scores(identical), 0)
+    isolated = identical.copy()
+    isolated[-1] = 100
+    scores = _ecod_scores(isolated)
+    assert scores[-1] > max(scores[:-1])
+    assert scores.max() > _ecod_scores(identical).max()
+    permutation = np.array([7, 2, 0, 1, 3, 4, 5, 6])
+    np.testing.assert_allclose(_ecod_scores(isolated[permutation]), scores[permutation])
