@@ -409,9 +409,7 @@ class BenchmarkRunner:
         benchmark_mode:
             Efficiency profiling mode forwarded to :meth:`run_single`.
         threat_bank_path:
-            Threat-bank JSONL forwarded to :meth:`run_single`.  Without it,
-            ``threat_prototype`` and ``cascade`` fit on the malicious test
-            samples, which leaks the test set into their prototype index.
+            Disjoint training threat-bank JSONL required for TPS and cascade.
         embedders:
             Embedder tiers to run, overriding the config's ``embedders``.
 
@@ -824,39 +822,8 @@ class BenchmarkRunner:
             # fit() is a no-op for these detectors
             return test_samples  # still called; just harmless
 
-        # threat_prototype / cascade — need a threat bank
-        if threat_bank_path is not None:
-            bank_path = Path(threat_bank_path)
-            if bank_path.exists():
-                bank = self._load_samples(bank_path)
-                if bank:
-                    logger.info(
-                        "_resolve_fit_samples: loaded threat bank with %d samples from %s",
-                        len(bank),
-                        bank_path.name,
-                    )
-                    return bank
-            logger.warning(
-                "_resolve_fit_samples: threat_bank_path '%s' not found or empty; "
-                "falling back to malicious test samples",
-                threat_bank_path,
-            )
-
-        # Fallback: use malicious samples from test set
-        malicious = [s for s in test_samples if s.label == "malicious"]
-        if not malicious:
-            logger.warning(
-                "_resolve_fit_samples: no threat bank and no malicious test samples; "
-                "fitting on all test samples as a last resort"
-            )
-            return test_samples
-
-        logger.warning(
-            "_resolve_fit_samples: no threat_bank_path provided; "
-            "fitting on %d malicious test samples (not production-quality)",
-            len(malicious),
-        )
-        return malicious
+        from tadbench.data.validation import load_threat_bank
+        return load_threat_bank(threat_bank_path, test_samples)
 
 
 # ---------------------------------------------------------------------------

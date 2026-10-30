@@ -219,6 +219,10 @@ def _build_detector(technique: str, emb, bank_path: Path, config: dict):
             emb,
             stage1_threshold=config.get("stage1_threshold", 0.8),
             stage2_threshold=config.get("stage2_threshold", 0.7),
+            stage3_threshold=config.get("stage3_threshold", 0.5),
+            tps_kwargs=config.get("tps_kwargs"),
+            ipsod_kwargs=config.get("ipsod_kwargs"),
+            iccd_kwargs=config.get("iccd_kwargs"),
         )
     else:
         raise ValueError(f"Unknown technique: {technique!r}")
@@ -235,27 +239,14 @@ def _fit_detector(detector, technique: str, bank_path: Path, raw_samples: list) 
         except Exception:
             pass
 
-    if technique == "threat_prototype":
-        if bank_path.exists():
-            detector.build_index(bank_path)
+    if technique in ("threat_prototype", "cascade"):
+        from tadbench.data.validation import load_threat_bank
+        bank = load_threat_bank(bank_path, samples)
+        if technique == "threat_prototype":
+            detector.fit(bank)
         else:
-            click.echo(
-                f"[calibrate] WARNING: threat bank not found at {bank_path}; "
-                "fitting on val samples instead."
-            )
-            malicious = [s for s in samples if s.label == "malicious"]
-            detector.fit(malicious or samples)
-    elif technique == "cascade":
-        if bank_path.exists():
-            detector._stage1.build_index(bank_path)
-        else:
-            click.echo(
-                f"[calibrate] WARNING: threat bank not found at {bank_path}; "
-                "fitting cascade stage 1 on validation samples instead."
-            )
-            malicious = [s for s in samples if s.label == "malicious"]
-            detector._stage1.fit(malicious or samples)
-        detector._stage2.fit(samples)
-        detector._stage3.fit(samples)
+            detector._stage1.fit(bank)
+            detector._stage2.fit(samples)
+            detector._stage3.fit(samples)
     else:
         detector.fit(samples)
