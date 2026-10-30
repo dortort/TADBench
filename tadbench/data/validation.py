@@ -19,3 +19,12 @@ def load_threat_bank(path: str | Path | None, evaluation: list[BenchmarkSample])
     if overlap:
         raise ValueError(f"Threat bank overlaps evaluation data ({len(overlap)} samples); rebuild disjoint splits")
     return bank
+
+
+def validate_disjoint_samples(training, evaluation):
+    """Reject repeated IDs or identical description/body pairs across splits."""
+    ids = {sample.id for sample in training}
+    pairs = {(sample.advertised_description.strip(), sample.prompt_body.strip()) for sample in training}
+    if any(sample.id in ids or (sample.advertised_description.strip(), sample.prompt_body.strip()) in pairs
+           for sample in evaluation):
+        raise ValueError("Validation and test inputs overlap; rebuild disjoint splits")

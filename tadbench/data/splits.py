@@ -55,9 +55,16 @@ def _stratified_split(
     if not (0 <= val_frac <= 1 and 0 <= test_frac <= 1 and val_frac + test_frac <= 1):
         raise ValueError("Split fractions must be nonnegative and sum to at most one")
     rng = random.Random(seed)
-    by_label: dict[str, list[dict]] = defaultdict(list)
-    for s in samples:
-        by_label[s["label"]].append(s)
+    # Repeated template inputs must travel together even when UUIDs differ.
+    by_input: dict[tuple, list[dict]] = defaultdict(list)
+    for sample in samples:
+        by_input[(sample.get("advertised_description", ""),
+                  sample.get("prompt_body", sample.get("id")))].append(sample)
+    by_label: dict[str, list[list[dict]]] = defaultdict(list)
+    for group in by_input.values():
+        if len({sample["label"] for sample in group}) != 1:
+            raise ValueError("Identical inputs have conflicting labels")
+        by_label[group[0]["label"]].append(group)
 
     train_all: list[dict] = []
     val_all: list[dict] = []
@@ -69,9 +76,9 @@ def _stratified_split(
         n = len(g)
         n_test = min(n, max(1, int(n * test_frac))) if test_frac else 0
         n_val = min(n - n_test, max(1, int(n * val_frac))) if val_frac else 0
-        test_all.extend(g[:n_test])
-        val_all.extend(g[n_test: n_test + n_val])
-        train_all.extend(g[n_test + n_val:])
+        test_all.extend(sample for group in g[:n_test] for sample in group)
+        val_all.extend(sample for group in g[n_test: n_test + n_val] for sample in group)
+        train_all.extend(sample for group in g[n_test + n_val:] for sample in group)
 
     rng.shuffle(train_all)
     rng.shuffle(val_all)
@@ -124,6 +131,14 @@ def build_threat_bank(
             f"{len(malicious):,}/{len(records):,} malicious"
         )
 
+    # Public corpora can overlap each other even when their own splits are
+    # correct. Exclude every held-out body across sources from the bank.
+    held_out_bodies = set()
+    for path in processed_dir.glob("*.jsonl"):
+        if path.stem.endswith(("_val", "_test")) or path.stem.startswith("adversarial_"):
+            held_out_bodies.update(record["prompt_body"].strip() for record in read_jsonl(path))
+    threat_bank = [sample for sample in threat_bank
+                   if sample["prompt_body"].strip() not in held_out_bodies]
     write_jsonl(threat_bank, out)
     print(f"[splits] Threat bank: {len(threat_bank):,} total -> {out}")
     return threat_bank

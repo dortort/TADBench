@@ -128,3 +128,24 @@ def test_drift_holdouts_exclude_train_and_derived_files(tmp_path):
     holdout = read_jsonl(tmp_path / "drift_holdout_direct_injection.jsonl")
     assert {r["id"] for r in holdout} == {r["id"] for r in test}
     assert len(holdout) == len(test)
+
+
+def test_repeated_template_inputs_remain_in_one_split():
+    from tadbench.data.splits import _stratified_split
+    records = [_record(str(i), "synthetic_mismatch", "describe") for i in range(30)]
+    for i, record in enumerate(records):
+        record["prompt_body"] = f"template {i % 10}"
+    splits = _stratified_split(records, .2, .2)
+    inputs = [{r["prompt_body"] for r in split} for split in splits]
+    assert sum(map(len, splits)) == len(records)
+    assert inputs[0].isdisjoint(inputs[1] | inputs[2])
+    assert inputs[1].isdisjoint(inputs[2])
+
+
+def test_threat_bank_excludes_cross_source_copies(tmp_path):
+    from tadbench.data.splits import build_threat_bank
+    train = _record("train", "spml", "", "malicious", "direct_injection")
+    copied = {**train, "id": "test", "source": "deepset"}
+    write_jsonl([train], tmp_path / "spml_train.jsonl")
+    write_jsonl([copied], tmp_path / "deepset_test.jsonl")
+    assert build_threat_bank(tmp_path, sources=["spml"]) == []
