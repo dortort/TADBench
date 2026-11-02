@@ -7,13 +7,13 @@ The destination must not exist: every release starts with fresh preparation.
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 import hashlib
-from importlib.metadata import distributions
 import json
-from pathlib import Path
 import shutil
 import subprocess
+from collections import Counter
+from importlib.metadata import distributions
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.request import urlopen
 
@@ -21,7 +21,6 @@ from tadbench.config import HF_DATASETS, PROJECT_ROOT
 from tadbench.data.schema import has_description, validate_sample
 from tadbench.data.validation import load_threat_bank, validate_disjoint_samples
 from tadbench.utils.io import read_jsonl
-
 
 CONFIGS = {
     "general": {
