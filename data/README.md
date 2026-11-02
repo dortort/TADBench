@@ -46,7 +46,7 @@ data/processed/benchmark_description_val_combined.jsonl
 
 ### PromptShield
 
-- **HuggingFace path**: `hendzh/PromptShield` (revision: `main`)
+- **HuggingFace path**: `hendzh/PromptShield` (revision: `a5234cb1f5cdb256600cab64b8c961195b5e8404`)
 - **Approximate size**: ~43,000 samples across three splits
 - **HuggingFace splits**: train, validation, test (used as-is; validation renamed to `val`)
 - **Raw columns used**: `prompt` (mapped to `prompt_body`), `label` (0/1 integer)
@@ -55,7 +55,7 @@ data/processed/benchmark_description_val_combined.jsonl
 
 ### deepset
 
-- **HuggingFace path**: `deepset/prompt-injections` (revision: `main`)
+- **HuggingFace path**: `deepset/prompt-injections` (revision: `4f61ecb038e9c3fb77e21034b22511b523772cdd`)
 - **Approximate size**: 662 samples across train and test
 - **HuggingFace splits**: train, test
 - **Raw columns used**: `text` (mapped to `prompt_body`), `label` (0/1 integer)
@@ -65,7 +65,7 @@ data/processed/benchmark_description_val_combined.jsonl
 
 ### SPML (SPML_Chatbot_Prompt_Injection)
 
-- **HuggingFace path**: `reshabhs/SPML_Chatbot_Prompt_Injection` (revision: `main`)
+- **HuggingFace path**: `reshabhs/SPML_Chatbot_Prompt_Injection` (revision: `02ce8084e979bc7d4c24ee35d22ecb7f2db96ff5`)
 - **Approximate size**: ~16,000 samples
 - **HuggingFace splits**: train (single large split)
 - **Raw columns used**:

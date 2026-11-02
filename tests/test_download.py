@@ -72,6 +72,9 @@ class TestDownloadDataset:
             or call_args[1].get("path") == "hendzh/PromptShield"
             or call_args[0][0] == "hendzh/PromptShield"
         )
+        revision = call_args.kwargs["revision"]
+        assert len(revision) == 40
+        int(revision, 16)  # Downloads must use an immutable commit, not main.
 
     def test_unknown_dataset_raises_key_error(self, tmp_path):
         # Inject a fake datasets module so the lazy import succeeds; the
