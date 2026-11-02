@@ -74,6 +74,7 @@ def test_export_preserves_bytes_and_fingerprints(processed, tmp_path, monkeypatc
     manifest = json.loads((destination / "manifest.json").read_text())
     for filename, digest in manifest["files"].items():
         assert sha256(destination / filename) == digest
+    assert manifest["preparation"] is None
     assert manifest["raw_files"]["input.parquet"] == sha256(raw / "input.parquet")
     assert (destination / "data/threat_bank.jsonl").read_bytes() == (processed / "threat_bank.jsonl").read_bytes()
     card = (destination / "README.md").read_text()
