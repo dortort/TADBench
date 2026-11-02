@@ -61,6 +61,10 @@ saves all three gate thresholds for `run --threshold-config`.
 
 All datasets are normalized to the unified `BenchmarkSample` schema (see below).
 
+To build an audited, versioned Hugging Face dataset export, see the
+[dataset release guide](docs/huggingface/README.md). GitHub remains the canonical
+home for the code; exported data retains source-specific licensing and provenance.
+
 ---
 
 ## Embedder Tiers
