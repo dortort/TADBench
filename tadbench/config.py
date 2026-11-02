@@ -106,14 +106,14 @@ DEFAULT_DETECTOR_CONFIG: dict[str, dict] = {
 HF_DATASETS: dict[str, dict[str, str]] = {
     "promptshield": {
         "path": "hendzh/PromptShield",
-        "revision": "main",
+        "revision": "a5234cb1f5cdb256600cab64b8c961195b5e8404",
     },
     "deepset": {
         "path": "deepset/prompt-injections",
-        "revision": "main",
+        "revision": "4f61ecb038e9c3fb77e21034b22511b523772cdd",
     },
     "spml": {
         "path": "reshabhs/SPML_Chatbot_Prompt_Injection",
-        "revision": "main",
+        "revision": "02ce8084e979bc7d4c24ee35d22ecb7f2db96ff5",
     },
 }
