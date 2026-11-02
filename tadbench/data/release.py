@@ -53,6 +53,8 @@ PREPARATION = {
     "ids": "UUID4; use the archived JSONL for exact IDs and bytes",
 }
 
+SPDX_LICENSE_LIST_VERSION = "v3.29.0"
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -141,8 +143,8 @@ def export(processed: Path, raw: Path, destination: Path, version: str,
     licenses = destination / "licenses"
     licenses.mkdir()
     for filename, url in {
-        "Apache-2.0.txt": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/Apache-2.0.txt",
-        "CC-BY-4.0.txt": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/CC-BY-4.0.txt",
+        "Apache-2.0.txt": f"https://raw.githubusercontent.com/spdx/license-list-data/{SPDX_LICENSE_LIST_VERSION}/text/Apache-2.0.txt",
+        "CC-BY-4.0.txt": f"https://raw.githubusercontent.com/spdx/license-list-data/{SPDX_LICENSE_LIST_VERSION}/text/CC-BY-4.0.txt",
     }.items():
         with urlopen(url, timeout=60) as response:
             (licenses / filename).write_bytes(response.read())
