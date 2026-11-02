@@ -61,6 +61,10 @@ saves all three gate thresholds for `run --threshold-config`.
 
 All datasets are normalized to the unified `BenchmarkSample` schema (see below).
 
+Prepared inputs are published on [Hugging Face Datasets](https://huggingface.co/datasets/dortort/TADBench).
+Use a release tag or commit SHA for reproducible evaluation; the dataset card
+documents configurations, provenance, and source-specific licenses.
+
 To build an audited, versioned Hugging Face dataset export, see the
 [dataset release guide](docs/huggingface/README.md). GitHub remains the canonical
 home for the code; exported data retains source-specific licensing and provenance.
