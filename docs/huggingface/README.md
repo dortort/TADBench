@@ -40,6 +40,10 @@ a clean, available source revision. UUIDs vary across builds; preserve the
 archived JSONL for byte-identical reproduction. Do not upload the project root,
 local raw folder, credentials, caches, or model indexes.
 
+If a build fails partway, for example on a network error, its output directory
+is left behind and blocks reruns by design. Delete it and rerun the full build:
+partial outputs are never reused.
+
 ## Verify and publish
 
 Review the generated card, attribution, counts, and manifest. Load every named
