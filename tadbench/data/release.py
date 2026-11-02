@@ -94,11 +94,12 @@ def audit(processed: Path) -> dict:
     return statistics
 
 
-def card_header() -> str:
+def card_header(repo_id: str = "dortort/TADBench") -> str:
     """Use explicit configs so archival/auxiliary JSONL files are never inferred."""
     lines = ["---", "pretty_name: TADBench", "language:", "- en",
              "license: other", "license_name: source-specific-licenses",
-             "license_link: NOTICE.md", "task_categories:", "- text-classification",
+             f"license_link: https://huggingface.co/datasets/{repo_id}/blob/main/NOTICE.md",
+             "task_categories:", "- text-classification",
              "tags:", "- prompt-injection", "- benchmark", "- llm-security", "configs:"]
     for name, config in CONFIGS.items():
         lines.append(f"- config_name: {name}")
@@ -141,7 +142,7 @@ def export(processed: Path, raw: Path, destination: Path, version: str,
             (licenses / filename).write_bytes(response.read())
     docs = PROJECT_ROOT / "docs" / "huggingface"
     card = (docs / "DATASET_CARD.md").read_text().replace("YOUR_NAMESPACE/TADBench", repo_id)
-    (destination / "README.md").write_text(card_header() + card.replace("v0.1.0", version))
+    (destination / "README.md").write_text(card_header(repo_id) + card.replace("v0.1.0", version))
     shutil.copyfile(docs / "NOTICE.md", destination / "NOTICE.md")
     shutil.copyfile(PROJECT_ROOT / "LICENSE", destination / "TADBench-LICENSE.txt")
     shutil.copyfile(PROJECT_ROOT / "matrix_config.json", provenance / "matrix_config.json")
