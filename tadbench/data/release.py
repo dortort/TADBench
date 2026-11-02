@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+from tempfile import TemporaryDirectory
 from urllib.request import urlopen
 
 from tadbench.config import HF_DATASETS, PROJECT_ROOT
@@ -183,16 +184,19 @@ def verify_release(destination: Path) -> dict:
         if sha256(destination / filename) != digest:
             raise ValueError(f"Release checksum mismatch: {filename}")
     counts = {}
-    for name, config in CONFIGS.items():
-        dataset = load_dataset(str(destination.resolve()), name=name)
-        if set(dataset) != set(config):
-            raise ValueError(f"Unexpected splits in configuration {name}")
-        counts[name] = {}
-        for split, filenames in config.items():
-            expected = sum(manifest["statistics"][filename]["rows"] for filename in filenames)
-            if len(dataset[split]) != expected:
-                raise ValueError(f"Unexpected row count in {name}/{split}")
-            counts[name][split] = expected
+    # Local directories with the same basename/card can collide in the global
+    # datasets cache. Verify the actual export in a fresh, disposable cache.
+    with TemporaryDirectory(prefix="tadbench-verify-") as cache:
+        for name, config in CONFIGS.items():
+            dataset = load_dataset(str(destination.resolve()), name=name, cache_dir=cache)
+            if set(dataset) != set(config):
+                raise ValueError(f"Unexpected splits in configuration {name}")
+            counts[name] = {}
+            for split, filenames in config.items():
+                expected = sum(manifest["statistics"][filename]["rows"] for filename in filenames)
+                if len(dataset[split]) != expected:
+                    raise ValueError(f"Unexpected row count in {name}/{split}")
+                counts[name][split] = expected
     return counts
 
 
