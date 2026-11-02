@@ -2,10 +2,20 @@
 
 import io
 import json
+import sys
 
 import pytest
 
-from tadbench.data.release import CONFIGS, audit, export, sha256, verify_release
+from tadbench.data.release import (
+    CONFIGS,
+    PREPARATION,
+    audit,
+    build_release,
+    export,
+    main,
+    sha256,
+    verify_release,
+)
 from tadbench.utils.io import write_jsonl
 
 
@@ -118,3 +128,73 @@ def test_verify_does_not_reuse_other_release_cache(processed, tmp_path, monkeypa
     write_jsonl([row, {**row, "id": "extra", "prompt_body": "extra validation input"}], path)
     second = export(processed, raw, tmp_path / "second/dataset", "v0.1.0")
     assert verify_release(second)["general"]["validation"] == 2
+
+
+def test_build_release_runs_pipeline_in_order_with_recorded_preparation(tmp_path, monkeypatch):
+    calls = []
+
+    def record(name):
+        def stub(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return tmp_path / "dataset" if name == "export" else None
+        return stub
+
+    for name, target in (
+        ("download", "tadbench.data.download.download_all"),
+        ("transform", "tadbench.data.transform.transform_all"),
+        ("synthetic", "tadbench.data.generate_synthetic.generate_synthetic"),
+        ("adversarial", "tadbench.data.generate_adversarial.generate_adversarial"),
+        ("splits", "tadbench.data.splits.build_splits"),
+        ("export", "tadbench.data.release.export"),
+    ):
+        monkeypatch.setattr(target, record(name))
+    output = tmp_path / "build"
+    assert build_release(output, "v0.3.0", "example/TADBench") == tmp_path / "dataset"
+    assert [name for name, *_ in calls] == [
+        "download", "transform", "synthetic", "adversarial", "splits", "export"]
+    by_name = {name: (args, kwargs) for name, args, kwargs in calls}
+    raw, processed = output / "raw", output / "processed"
+    assert by_name["download"][0] == (raw,)
+    assert by_name["transform"][0] == (raw, processed)
+    assert by_name["synthetic"] == ((processed / "synthetic_mismatch.jsonl",), {
+        "n_benign": PREPARATION["synthetic"]["benign"],
+        "n_malicious": PREPARATION["synthetic"]["malicious"],
+        "n_hard_negatives": PREPARATION["synthetic"]["hard_negatives"],
+        "seed": PREPARATION["seed"]})
+    per_technique = PREPARATION["adversarial_per_technique"]
+    assert by_name["adversarial"] == ((processed,), {
+        "n_tps": per_technique, "n_ipsod": per_technique, "n_iccd": per_technique,
+        "seed": PREPARATION["seed"]})
+    assert by_name["splits"][0] == (processed,)
+    assert by_name["export"] == (
+        (processed, raw, output / "dataset", "v0.3.0", "example/TADBench"),
+        {"preparation": PREPARATION})
+
+
+def test_build_release_rejects_existing_output(tmp_path):
+    with pytest.raises(FileExistsError):
+        build_release(tmp_path, "v0.1.0")
+
+
+def test_main_verifies_existing_export(tmp_path, monkeypatch, capsys):
+    verified = []
+    monkeypatch.setattr("tadbench.data.release.verify_release",
+                        lambda path: verified.append(path) or {"general": {"test": 1}})
+    monkeypatch.setattr(sys, "argv", ["release", "--verify", str(tmp_path)])
+    main()
+    assert verified == [tmp_path]
+    assert json.loads(capsys.readouterr().out) == {"general": {"test": 1}}
+
+
+def test_main_builds_then_verifies_release(tmp_path, monkeypatch, capsys):
+    built, verified = [], []
+    destination = tmp_path / "dataset"
+    monkeypatch.setattr("tadbench.data.release.build_release",
+                        lambda *args: built.append(args) or destination)
+    monkeypatch.setattr("tadbench.data.release.verify_release", verified.append)
+    monkeypatch.setattr(sys, "argv", ["release", "--output-dir", str(tmp_path / "build"),
+                                      "--version", "v0.3.0", "--repo-id", "example/TADBench"])
+    main()
+    assert built == [(tmp_path / "build", "v0.3.0", "example/TADBench")]
+    assert verified == [destination]
+    assert str(destination) in capsys.readouterr().out
