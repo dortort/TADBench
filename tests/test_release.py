@@ -78,6 +78,7 @@ def test_export_preserves_bytes_and_fingerprints(processed, tmp_path, monkeypatc
     assert (destination / "data/threat_bank.jsonl").read_bytes() == (processed / "threat_bank.jsonl").read_bytes()
     card = (destination / "README.md").read_text()
     assert '"example/TADBench"' in card and 'revision="v0.2.0"' in card
+    assert "license_link: https://huggingface.co/datasets/example/TADBench/blob/main/NOTICE.md" in card
     assert "config_name: description" in card
     with pytest.raises(FileExistsError):
         export(processed, raw, destination, "v0.2.0")
