@@ -53,6 +53,17 @@ The build command runs this verification automatically before reporting success.
 Keep the October 2026 result tables labeled historical; this data release does
 not establish corrected scores.
 
+The `code_revision` recorded in `manifest.json` must stay reachable after the
+release PR merges. `main` only allows squash or rebase merges, which rewrite
+commit SHAs, and merged branches are deleted. Before merging, tag that revision
+and push the tag:
+
+```bash
+git tag -a dataset/v0.1.0 "$(jq -r .code_revision data/releases/v0.1.0/dataset/manifest.json)" \
+  -m "Code revision for the TADBench v0.1.0 dataset release"
+git push origin dataset/v0.1.0
+```
+
 Install the official CLI once and authenticate in the browser:
 
 ```bash
