@@ -46,6 +46,13 @@ METADATA_TYPES = {
     "category": "string", "evasion_technique": "string", "n_sentences": "int64",
 }
 
+PREPARATION = {
+    "seed": 42,
+    "synthetic": {"benign": 1000, "malicious": 1000, "hard_negatives": 1000},
+    "adversarial_per_technique": 200,
+    "ids": "UUID4; use the archived JSONL for exact IDs and bytes",
+}
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -120,7 +127,7 @@ def card_header(repo_id: str = "dortort/TADBench") -> str:
 
 
 def export(processed: Path, raw: Path, destination: Path, version: str,
-           repo_id: str = "dortort/TADBench") -> Path:
+           repo_id: str = "dortort/TADBench", *, preparation: dict | None = None) -> Path:
     """Export already prepared inputs; the caller must establish their provenance."""
     stats = audit(processed)
     destination.mkdir(parents=True, exist_ok=False)
@@ -159,9 +166,7 @@ def export(processed: Path, raw: Path, destination: Path, version: str,
         "version": version, "repo_id": repo_id,
         "code_revision": revision, "code_dirty": bool(dirty),
         "upstream_datasets": HF_DATASETS,
-        "preparation": {"seed": 42, "synthetic": {"benign": 1000, "malicious": 1000, "hard_negatives": 1000},
-                        "adversarial_per_technique": 200,
-                        "ids": "UUID4; use the archived JSONL for exact IDs and bytes"},
+        "preparation": preparation,
         "checks": {"schemas": "passed", "validation_test_disjoint": "passed",
                    "threat_bank_disjoint": "passed", "threat_bank_training_membership": "passed"},
         "statistics": stats,
@@ -211,10 +216,14 @@ def build_release(output: Path, version: str, repo_id: str = "dortort/TADBench")
     raw, processed = output / "raw", output / "processed"
     download_all(raw)
     transform_all(raw, processed)
-    generate_synthetic(processed / "synthetic_mismatch.jsonl", seed=42)
-    generate_adversarial(processed, seed=42)
+    synthetic, per_technique = PREPARATION["synthetic"], PREPARATION["adversarial_per_technique"]
+    generate_synthetic(processed / "synthetic_mismatch.jsonl", n_benign=synthetic["benign"],
+                       n_malicious=synthetic["malicious"], n_hard_negatives=synthetic["hard_negatives"],
+                       seed=PREPARATION["seed"])
+    generate_adversarial(processed, n_tps=per_technique, n_ipsod=per_technique, n_iccd=per_technique,
+                         seed=PREPARATION["seed"])
     build_splits(processed)
-    return export(processed, raw, output / "dataset", version, repo_id)
+    return export(processed, raw, output / "dataset", version, repo_id, preparation=PREPARATION)
 
 
 def main() -> None:
