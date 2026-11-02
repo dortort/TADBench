@@ -103,3 +103,16 @@ def test_all_configs_load_with_different_metadata_fields(processed, tmp_path, mo
         assert set(counts[name]) == set(config)
         for split, filenames in config.items():
             assert counts[name][split] == len(filenames)
+
+
+def test_verify_does_not_reuse_other_release_cache(processed, tmp_path, monkeypatch):
+    monkeypatch.setattr("tadbench.data.release.urlopen", lambda *a, **kw: io.BytesIO(b"Source notice"))
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    first = export(processed, raw, tmp_path / "first/dataset", "v0.1.0")
+    assert verify_release(first)["general"]["validation"] == 1
+    path = processed / "benchmark_val_combined.jsonl"
+    row = json.loads(path.read_text())
+    write_jsonl([row, {**row, "id": "extra", "prompt_body": "extra validation input"}], path)
+    second = export(processed, raw, tmp_path / "second/dataset", "v0.1.0")
+    assert verify_release(second)["general"]["validation"] == 2
